@@ -16,7 +16,6 @@ AlertOps bridges the gap between raw monitoring data and actionable insights. In
 ### Dashboard Browser
 Browse all Grafana dashboards and panels. Click any panel to create an alert.
 
-**File to replace:** `assets/screenshots/dashboards.svg` (or `.png`, `.jpg`)
 
 ![Dashboard Browser](assets/screenshots/dashboards.png)
 
@@ -25,7 +24,6 @@ Browse all Grafana dashboards and panels. Click any panel to create an alert.
 ### Alert Creation Wizard
 Generate AI-powered alert rules from panel queries. Edit and validate before saving.
 
-**File to replace:** `assets/screenshots/create-alert.svg` (or `.png`, `.jpg`)
 
 ![Alert Creation Wizard](assets/screenshots/create-alert.png)
 
@@ -34,7 +32,6 @@ Generate AI-powered alert rules from panel queries. Edit and validate before sav
 ### Active Alerts
 Real-time alert feed with AI diagnosis. New alerts appear instantly; diagnosis updates asynchronously.
 
-**File to replace:** `assets/screenshots/active-alerts.svg` (or `.png`, `.jpg`)
 
 ![Active Alerts](assets/screenshots/active-alerts.png)
 
@@ -43,7 +40,6 @@ Real-time alert feed with AI diagnosis. New alerts appear instantly; diagnosis u
 ### Alert History
 Search and filter past alerts. Click any alert to view full details and diagnosis.
 
-**File to replace:** `assets/screenshots/alert-history.svg` (or `.png`, `.jpg`)
 
 ![Alert History](assets/screenshots/alert-history.png)
 
@@ -52,7 +48,6 @@ Search and filter past alerts. Click any alert to view full details and diagnosi
 ### LLM Provider Settings
 Manage multiple LLM providers. Supports DeepSeek, OpenAI, and any OpenAI-compatible API.
 
-**File to replace:** `assets/screenshots/providers.svg` (or `.png`, `.jpg`)
 
 ![LLM Provider Settings](assets/screenshots/providers.png)
 
