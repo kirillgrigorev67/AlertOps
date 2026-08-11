@@ -45,12 +45,13 @@ class AlertRule(BaseModel):
     updated_at: Optional[str] = None
     panel_uid: Optional[str] = None
     dashboard_uid: Optional[str] = None
+    resolve_timeout: int = 5  # minutes to wait before closing after metric recovery
 
 
 class Alert(BaseModel):
     id: str
     alertname: str
-    status: str  # firing, resolved
+    status: str  # firing, resolving, acknowledged, resolved
     severity: str
     summary: Optional[str] = None
     description: Optional[str] = None
@@ -65,6 +66,8 @@ class Alert(BaseModel):
     read: bool = False
     created_at: str
     updated_at: str
+    resolve_timeout: int = 5  # minutes (inherited from rule)
+    resolve_at: Optional[str] = None  # when resolving will complete
 
 
 class LLMProvider(BaseModel):

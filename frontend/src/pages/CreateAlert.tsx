@@ -44,6 +44,7 @@ export default function CreateAlert() {
   const [condition, setCondition] = useState('> 80')
   const [duration, setDuration] = useState('5m')
   const [severity, setSeverity] = useState('warning')
+  const [resolveTimeout, setResolveTimeout] = useState('5')
   const [variants, setVariants] = useState<AlertVariant[]>([])
   const [generating, setGenerating] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -111,6 +112,12 @@ export default function CreateAlert() {
       return
     }
 
+    const timeoutNum = parseInt(resolveTimeout)
+    if (isNaN(timeoutNum) || timeoutNum < 3) {
+      setError('Resolve timeout must be at least 3 minutes')
+      return
+    }
+
     setSaving(true)
     setError(null)
 
@@ -124,6 +131,7 @@ export default function CreateAlert() {
         condition,
         duration,
         severity,
+        resolve_timeout: parseInt(resolveTimeout) || 5,
         labels: {},
         annotations: {
           summary: name,
@@ -222,7 +230,7 @@ export default function CreateAlert() {
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '12px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '8px', marginBottom: '12px' }}>
             <div>
               <label style={{ display: 'block', marginBottom: '4px', fontSize: '14px' }}>Condition</label>
               <input
@@ -249,6 +257,19 @@ export default function CreateAlert() {
                 <option value="info">Info</option>
               </select>
             </div>
+            <div>
+              <label style={{ display: 'block', marginBottom: '4px', fontSize: '14px' }}>Resolve Timeout</label>
+              <input
+                type="text"
+                value={resolveTimeout}
+                onChange={e => setResolveTimeout(e.target.value)}
+                placeholder="5m"
+              />
+            </div>
+          </div>
+
+          <div style={{ marginBottom: '12px', fontSize: '12px', color: 'var(--text-muted)' }}>
+            Resolve timeout: delay before closing the alert after metric recovery. Prevents flapping.
           </div>
 
           {error && (

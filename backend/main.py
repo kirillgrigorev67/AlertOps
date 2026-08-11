@@ -32,6 +32,60 @@ from diagnosis import diagnosis_service
 DATA_DIR = os.environ.get("DATA_DIR", "./data")
 
 
+async def _process_delayed_resolve(alert_id: str, resolve_at: str):
+    """Background task: move alert to history after resolve_timeout expires."""
+    try:
+        # Parse resolve_at
+        resolve_dt = datetime.fromisoformat(resolve_at)
+        now = datetime.utcnow()
+        
+        # Calculate sleep duration
+        sleep_seconds = (resolve_dt - now).total_seconds()
+        if sleep_seconds > 0:
+            await asyncio.sleep(sleep_seconds)
+        
+        # Check if alert is still resolving
+        alert = storage.get("alerts/active", alert_id)
+        if alert and alert.get("status") == "resolving":
+            now = datetime.utcnow().isoformat()
+            alert["status"] = "resolved"
+            alert["ends_at"] = now
+            alert["updated_at"] = now
+            storage.save("alerts/history", alert_id, alert)
+            storage.delete("alerts/active", alert_id)
+            print(f"Alert {alert_id} auto-resolved after timeout")
+    except Exception as e:
+        print(f"Error in delayed resolve for {alert_id}: {e}")
+
+
+async def _cleanup_resolving_alerts():
+    """On startup: check all resolving alerts and process expired ones."""
+    active_alerts = storage.list("alerts/active")
+    now = datetime.utcnow()
+    
+    for alert in active_alerts:
+        if alert.get("status") == "resolving":
+            resolve_at = alert.get("resolve_at")
+            if resolve_at:
+                try:
+                    resolve_dt = datetime.fromisoformat(resolve_at)
+                    if now >= resolve_dt:
+                        # Already expired, resolve immediately
+                        alert_id = alert["id"]
+                        alert["status"] = "resolved"
+                        alert["ends_at"] = now.isoformat()
+                        alert["updated_at"] = now.isoformat()
+                        storage.save("alerts/history", alert_id, alert)
+                        storage.delete("alerts/active", alert_id)
+                        print(f"Alert {alert_id} resolved on startup (expired timeout)")
+                    else:
+                        # Re-schedule background task
+                        asyncio.create_task(_process_delayed_resolve(alert_id, resolve_at))
+                        print(f"Re-scheduled delayed resolve for {alert_id}")
+                except Exception as e:
+                    print(f"Error processing resolving alert {alert['id']}: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
@@ -53,6 +107,9 @@ async def lifespan(app: FastAPI):
         }
         storage.save("providers", "demo-default", demo_provider)
         print("Created default Demo provider")
+    
+    # Cleanup resolving alerts from previous run
+    await _cleanup_resolving_alerts()
     
     yield
     
@@ -367,11 +424,22 @@ async def receive_alert_webhook(
                 # Update existing alert's start time, don't create duplicate
                 existing["starts_at"] = alert_data.get("startsAt", now)
                 existing["updated_at"] = now
+                # If was resolving, cancel the delayed resolve by resetting status
+                if existing.get("status") == "resolving":
+                    existing["resolve_at"] = None
                 existing["status"] = "firing"
                 storage.save("alerts/active", existing["id"], existing)
             else:
                 # Create new active alert
                 alert_id = str(uuid.uuid4())
+                # Try to find matching rule to get resolve_timeout
+                resolve_timeout = 5  # default
+                rules = storage.list("rules")
+                for rule in rules:
+                    if rule.get("name") == alertname:
+                        resolve_timeout = rule.get("resolve_timeout", 5)
+                        break
+                
                 alert = {
                     "id": alert_id,
                     "alertname": alertname,
@@ -390,6 +458,8 @@ async def receive_alert_webhook(
                     "read": False,
                     "created_at": now,
                     "updated_at": now,
+                    "resolve_timeout": resolve_timeout,
+                    "resolve_at": None,
                 }
                 storage.save("alerts/active", alert_id, alert)
                 # Trigger background diagnosis only for new firing alerts
@@ -397,7 +467,7 @@ async def receive_alert_webhook(
                 created_count += 1
         
         elif status == "resolved":
-            # Find active alert with same fingerprint and move to history
+            # Find active alert with same fingerprint
             active_alerts = storage.list("alerts/active")
             existing = None
             for a in active_alerts:
@@ -406,13 +476,19 @@ async def receive_alert_webhook(
                     break
             
             if existing:
-                # Move to history
-                existing["status"] = "resolved"
-                existing["ends_at"] = alert_data.get("endsAt", now)
-                existing["updated_at"] = now
-                storage.save("alerts/history", existing["id"], existing)
-                storage.delete("alerts/active", existing["id"])
-                resolved_count += 1
+                # Start delayed resolve instead of immediate move to history
+                existing_status = existing.get("status")
+                if existing_status in ("firing", "acknowledged"):
+                    resolve_timeout = existing.get("resolve_timeout", 5)
+                    resolve_at = (datetime.utcnow() + __import__('datetime').timedelta(minutes=resolve_timeout)).isoformat()
+                    existing["status"] = "resolving"
+                    existing["resolve_at"] = resolve_at
+                    existing["updated_at"] = now
+                    storage.save("alerts/active", existing["id"], existing)
+                    # Schedule background task to complete resolve after timeout
+                    background_tasks.add_task(_process_delayed_resolve, existing["id"], resolve_at)
+                    resolved_count += 1
+                # If already resolving, do nothing (timeout already scheduled)
             # If no active alert found, do nothing (already resolved manually)
     
     return {

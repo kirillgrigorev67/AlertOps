@@ -13,6 +13,7 @@ interface AlertRule {
   condition: string
   duration: string
   severity: string
+  resolve_timeout?: number
   labels: Record<string, string>
   annotations: Record<string, string>
   created_at: string
@@ -44,6 +45,7 @@ export default function AlertRules() {
   const [editModalOpen, setEditModalOpen] = useState(false)
   const [editingRule, setEditingRule] = useState<AlertRule | null>(null)
   const [editForm, setEditForm] = useState<Partial<AlertRule>>({})
+  const [editResolveTimeout, setEditResolveTimeout] = useState('5')
   const [saving, setSaving] = useState(false)
 
   // AI generation in edit modal
@@ -113,6 +115,7 @@ export default function AlertRules() {
   const openEditModal = (rule: AlertRule) => {
     setEditingRule(rule)
     setEditForm({ ...rule })
+    setEditResolveTimeout(String(rule.resolve_timeout || 5))
     setAiVariants([])
     setAiError('')
     loadProviders()
@@ -165,9 +168,19 @@ export default function AlertRules() {
 
   const saveEdit = async () => {
     if (!editingRule) return
+
+    const timeoutNum = parseInt(editResolveTimeout)
+    if (isNaN(timeoutNum) || timeoutNum < 3) {
+      setAiError('Resolve timeout must be at least 3 minutes')
+      return
+    }
+
     try {
       setSaving(true)
-      const updated = await api.put<AlertRule>(`/rules/${editingRule.id}`, editForm)
+      const updated = await api.put<AlertRule>(`/rules/${editingRule.id}`, {
+        ...editForm,
+        resolve_timeout: timeoutNum,
+      })
       setRules(rules.map((r: AlertRule) => r.id === updated.id ? updated : r))
       closeEditModal()
     } catch (err) {
@@ -317,6 +330,10 @@ export default function AlertRules() {
                 </span>
                 <span className="alert-meta-item">
                   <Clock size={14} />
+                  Resolve: {rule.resolve_timeout || 5} min
+                </span>
+                <span className="alert-meta-item">
+                  <Clock size={14} />
                   Created: {new Date(rule.created_at).toLocaleString()}
                 </span>
               </div>
@@ -422,6 +439,20 @@ export default function AlertRules() {
                     <option value="info">Info</option>
                   </select>
                 </div>
+                <div className="form-group">
+                  <label className="form-label">Resolve Timeout</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={editResolveTimeout}
+                    onChange={(e: { target: { value: string } }) => setEditResolveTimeout(e.target.value)}
+                    placeholder="5m"
+                  />
+                </div>
+              </div>
+
+              <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '-8px' }}>
+                Resolve timeout: delay before closing the alert after metric recovery. Prevents flapping.
               </div>
 
               {/* AI Generation */}
@@ -468,7 +499,7 @@ export default function AlertRules() {
                 </div>
 
                 {aiError && (
-                  <div className="alert alert-error" style={{ fontSize: '13px', padding: '10px 12px' }}>
+                  <div className="alert alert-error" style={{ fontSize: '13px', padding: '10px 12px', color: '#ef4444' }}>
                     {aiError}
                   </div>
                 )}
