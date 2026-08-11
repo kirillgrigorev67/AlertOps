@@ -13,6 +13,7 @@ interface Alert {
   starts_at: string
   diagnosis: string | null
   diagnosis_status: string
+  read: boolean
 }
 
 export default function ActiveAlerts() {
@@ -114,7 +115,7 @@ export default function ActiveAlerts() {
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           {alerts.map(alert => (
-            <div key={alert.id} className={`alert-card ${getSeverityClass(alert.severity)}`}>
+            <div key={alert.id} className={`alert-card ${getSeverityClass(alert.severity)} ${!alert.read ? 'alert-unread' : ''}`}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>

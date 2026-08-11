@@ -62,6 +62,7 @@ class Alert(BaseModel):
     fingerprint: str
     diagnosis: Optional[str] = None
     diagnosis_status: str = "pending"  # pending, analyzing, completed, failed
+    read: bool = False
     created_at: str
     updated_at: str
 

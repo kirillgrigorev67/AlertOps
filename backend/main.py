@@ -387,6 +387,7 @@ async def receive_alert_webhook(
                     "fingerprint": fingerprint,
                     "diagnosis": None,
                     "diagnosis_status": "pending",
+                    "read": False,
                     "created_at": now,
                     "updated_at": now,
                 }
@@ -478,6 +479,29 @@ async def list_active_alerts():
     return storage.list("alerts/active")
 
 
+@api_router.get("/alerts/unread-count")
+async def get_unread_count():
+    """Return the number of all active alerts (including acknowledged)."""
+    alerts = storage.list("alerts/active")
+    # Count all alerts in active list (firing + acknowledged)
+    return {"unread_count": len(alerts)}
+
+
+@api_router.post("/alerts/mark-all-read")
+async def mark_all_alerts_read():
+    """Mark all active alerts as read."""
+    alerts = storage.list("alerts/active")
+    count = 0
+    for alert in alerts:
+        if not alert.get("read", False):
+            alert["read"] = True
+            alert["updated_at"] = datetime.utcnow().isoformat()
+            storage.save("alerts/active", alert["id"], alert)
+            count += 1
+    
+    return {"status": "read", "count": count}
+
+
 @api_router.get("/alerts/{alert_id}", response_model=Alert)
 async def get_alert(alert_id: str):
     alert = storage.get("alerts/active", alert_id)
@@ -487,6 +511,20 @@ async def get_alert(alert_id: str):
         if not alert:
             raise HTTPException(status_code=404, detail="Alert not found")
     return Alert(**alert)
+
+
+@api_router.post("/alerts/{alert_id}/read")
+async def mark_alert_read(alert_id: str):
+    """Mark a single alert as read."""
+    alert = storage.get("alerts/active", alert_id)
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    
+    alert["read"] = True
+    alert["updated_at"] = datetime.utcnow().isoformat()
+    storage.save("alerts/active", alert_id, alert)
+    
+    return {"status": "read"}
 
 
 @api_router.post("/alerts/{alert_id}/resolve")
