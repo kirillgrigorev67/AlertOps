@@ -86,6 +86,7 @@ Manage multiple LLM providers. Supports DeepSeek, OpenAI, and any OpenAI-compati
 - **Instant alerts** — webhook response is immediate; diagnosis runs asynchronously
 - **AI alert generation** — create rules from Grafana panels with LLM suggestions
 - **AI diagnosis** — automatic log correlation and root cause analysis
+- **Active alert counter** — red badge on the sidebar shows the number of active alerts at a glance
 - **Dark theme UI** — modern, minimal design inspired by Grafana/Linear
 
 ## Quick Start
@@ -213,7 +214,16 @@ When an alert fires:
 
 This ensures critical alerts are never delayed by LLM latency.
 
-### 4. File Storage
+### 4. Alert Counter Badge
+
+The sidebar shows a **red badge** next to "Active Alerts" with the current count of all active alerts (both firing and acknowledged). The counter:
+
+- Updates automatically every 5 seconds via polling
+- Shows **99+** when there are more than 99 active alerts
+- Does **not** reset when you open the Active Alerts page
+- Disappears when there are no active alerts
+
+### 5. File Storage
 
 All data is stored in `./data/`:
 
@@ -232,6 +242,82 @@ data/
 ```
 
 Backup is trivial: `tar -czf backup.tar.gz data/`
+
+## API Reference
+
+The backend exposes a REST API at `http://localhost:8000/api/`. All endpoints return JSON. CORS is enabled, no authentication required.
+
+### Health & Status
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/health` | Backend health check |
+| `GET` | `/api/health/services` | Status of Prometheus, Loki, Alertmanager, Grafana |
+
+### Dashboards
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/dashboards` | List all Grafana dashboards |
+| `GET` | `/api/dashboards/{uid}/panels` | Panels in a dashboard with queries |
+
+### Alert Rules
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/rules` | List all alert rules |
+| `POST` | `/api/rules` | Create a new rule (generates YAML + reloads service) |
+| `PUT` | `/api/rules/{id}` | Update an existing rule |
+| `DELETE` | `/api/rules/{id}` | Delete a rule and its YAML file |
+
+### AI Alert Generation
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/ai/generate-alerts` | Generate 3 alert rule variations via LLM |
+| `POST` | `/api/validate-query` | Dry-run a PromQL/LogQL query |
+
+### Webhook
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/webhooks/alerts` | Receive alerts from Alertmanager |
+
+### Active Alerts
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/alerts` | List all active alerts |
+| `GET` | `/api/alerts/unread-count` | Count of active alerts (for the badge) |
+| `POST` | `/api/alerts/mark-all-read` | Mark all alerts as read |
+| `GET` | `/api/alerts/{id}` | Get a single alert (searches active, then history) |
+| `POST` | `/api/alerts/{id}/read` | Mark one alert as read |
+| `POST` | `/api/alerts/{id}/resolve` | Acknowledge an alert (status → acknowledged) |
+
+### Alert History
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/alerts/history?q=&start=&end=` | Resolved alerts with search and date filter |
+| `DELETE` | `/api/alerts/history` | Clear all history (active alerts preserved) |
+
+### LLM Providers
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/providers` | List all providers |
+| `POST` | `/api/providers` | Add a new provider |
+| `PUT` | `/api/providers/{id}` | Update a provider |
+| `DELETE` | `/api/providers/{id}` | Delete a provider |
+| `POST` | `/api/providers/{id}/default` | Set as default provider |
+| `POST` | `/api/providers/{id}/test` | Test provider connectivity |
+
+### Query & Proxy
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/grafana-proxy/solo/{uid}/{slug}` | Proxy for embedded Grafana panels |
+| `POST` | `/api/query-range` | Execute range query (Prometheus/Loki) for charts |
 
 ## Troubleshooting
 
