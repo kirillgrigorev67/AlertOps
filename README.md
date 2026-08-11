@@ -7,7 +7,7 @@
 AlertOps bridges the gap between raw monitoring data and actionable insights. Instead of manually correlating metrics, logs, and alerts across multiple tools, you get a unified dashboard where you can:
 
 - **Browse Grafana dashboards** and create alert rules directly from any panel
-- **Generate alert rules with AI** — the system suggests 3 variations based on the panel's query
+- **Generate alert rules with AI** — the system suggests 3 complete variations (name, description, query, condition, duration) based on the panel's query
 - **Receive instant alerts** via Alertmanager webhooks
 - **Get AI-powered diagnosis** — automatically fetches relevant logs from Loki and analyzes them with an LLM
 
@@ -22,7 +22,7 @@ Browse all Grafana dashboards and panels. Click any panel to create an alert.
 ---
 
 ### Alert Creation Wizard
-Generate AI-powered alert rules from panel queries. Edit and validate before saving.
+Generate AI-powered alert rules from panel queries. Each variant includes name, description, query, condition, and duration — all auto-filled on selection. Edit and validate before saving.
 
 
 ![Alert Creation Wizard](assets/screenshots/create-alert.png)
@@ -197,8 +197,8 @@ The UI fetches dashboards from Grafana via its HTTP API. Each panel shows its qu
 ### 2. Alert Creation Wizard
 
 - **Step 1**: View the extracted query. If multiple queries exist, manual input is required.
-- **Step 2**: Click **Generate Variations** to get 3 AI-suggested alert rules.
-- **Step 3**: Select a variation or write your own query. Add name and description.
+- **Step 2**: Click **Generate Variations** to get 3 AI-suggested alert rules. Each variant includes a generated name, description, query, condition, and duration.
+- **Step 3**: Select a variation — name, description, query, condition, and duration are auto-filled. Edit any field if needed, or write your own query completely.
 - **Step 4**: Save — the rule is written as a YAML file and Prometheus is reloaded.
 
 ### 3. Alert Processing Pipeline
