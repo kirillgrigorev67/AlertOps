@@ -6,9 +6,12 @@ import {
   History, 
   Settings, 
   Zap,
-  ShieldAlert
+  ShieldAlert,
+  Sun,
+  Moon
 } from 'lucide-react'
 import ServiceStatus from './ServiceStatus'
+import { useTheme } from './ThemeContext'
 import api from '../api/client'
 
 interface LayoutProps {
@@ -17,6 +20,7 @@ interface LayoutProps {
 
 export default function Layout({ children }: LayoutProps) {
   const [unreadCount, setUnreadCount] = useState(0)
+  const { theme, toggleTheme } = useTheme()
 
   useEffect(() => {
     const fetchUnread = async () => {
@@ -44,11 +48,34 @@ export default function Layout({ children }: LayoutProps) {
   return (
     <div className="layout">
       <aside className="sidebar">
-        <div style={{ padding: '0 20px 20px', borderBottom: '1px solid var(--border-color)' }}>
+        <div style={{ padding: '0 20px 20px', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <h1 style={{ fontSize: '20px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Zap size={24} color="var(--accent-primary)" />
             AlertOps
           </h1>
+          <button
+            onClick={toggleTheme}
+            title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+            style={{
+              padding: '6px',
+              borderRadius: 'var(--radius-sm)',
+              color: 'var(--text-secondary)',
+              transition: 'var(--transition)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-primary)'
+              ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--bg-tertiary)'
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)'
+              ;(e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'
+            }}
+          >
+            {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+          </button>
         </div>
         
         <nav style={{ marginTop: '16px' }}>
