@@ -159,6 +159,8 @@ export default function AlertRules() {
   const applyVariant = (variant: AlertVariant) => {
     setEditForm(prev => ({
       ...prev,
+      name: variant.name,
+      description: variant.description,
       query: variant.query,
       condition: variant.condition,
       duration: variant.duration,

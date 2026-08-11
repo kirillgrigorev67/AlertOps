@@ -3,3 +3,5 @@ node_modules/
 dist/
 __pycache__/
 *.pyc
+config/prometheus/rules/prom_alert_*.yml
+config/loki/rules/*.yml

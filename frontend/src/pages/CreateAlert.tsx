@@ -101,6 +101,8 @@ export default function CreateAlert() {
   }
 
   const selectVariant = (variant: AlertVariant) => {
+    setName(variant.name)
+    setDescription(variant.description)
     setQuery(variant.query)
     setCondition(variant.condition)
     setDuration(variant.duration)
