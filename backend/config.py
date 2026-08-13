@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     llm_base_url: str = "https://api.deepseek.com/v1"
     llm_model: str = "deepseek-chat"
 
+    # Alert history cleanup settings
+    alert_history_retention_days: int = 90
+    alert_history_cleanup_action: str = "delete"  # "delete" or "archive"
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

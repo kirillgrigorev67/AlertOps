@@ -6,6 +6,8 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import httpx
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
 from fastapi import FastAPI, APIRouter, BackgroundTasks, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
@@ -28,6 +30,7 @@ from rule_generator import rule_generator
 from query_validator import query_validator
 from alert_ai_generator import alert_ai_generator
 from diagnosis import diagnosis_service
+from cleanup import cleanup_service
 
 DATA_DIR = os.environ.get("DATA_DIR", "./data")
 
@@ -111,9 +114,22 @@ async def lifespan(app: FastAPI):
     # Cleanup resolving alerts from previous run
     await _cleanup_resolving_alerts()
     
+    # Start scheduled cleanup job for alert history
+    scheduler = AsyncIOScheduler()
+    scheduler.add_job(
+        cleanup_service.run_cleanup,
+        CronTrigger(hour=3, minute=0),  # Daily at 3:00 AM
+        id="alert_history_cleanup",
+        name="Alert History Cleanup",
+        replace_existing=True,
+    )
+    scheduler.start()
+    print(f"Started alert history cleanup scheduler (retention: {settings.alert_history_retention_days} days, action: {settings.alert_history_cleanup_action})")
+    
     yield
     
-    # Shutdown: nothing special needed for file storage
+    # Shutdown
+    scheduler.shutdown()
 
 
 app = FastAPI(title="AlertOps API", version="1.0.0", lifespan=lifespan)
@@ -845,6 +861,35 @@ async def query_range(req: QueryRangeRequest):
             error=str(e),
             series=[],
         )
+
+
+# Cleanup endpoints
+@api_router.post("/cleanup/run")
+async def run_cleanup(dry_run: bool = False):
+    """Manually trigger alert history cleanup."""
+    return cleanup_service.run_cleanup(dry_run=dry_run)
+
+
+@api_router.get("/cleanup/logs")
+async def get_cleanup_logs(limit: int = 100):
+    """Get recent cleanup operation logs."""
+    return {"logs": cleanup_service.get_logs(limit)}
+
+
+@api_router.get("/cleanup/config")
+async def get_cleanup_config():
+    """Get current cleanup configuration."""
+    return {
+        "retention_days": settings.alert_history_retention_days,
+        "action": settings.alert_history_cleanup_action,
+        "schedule": "Daily at 3:00 AM UTC",
+    }
+
+
+@api_router.get("/cleanup/archives")
+async def get_archives():
+    """Get information about archived alert history."""
+    return cleanup_service.get_archive_info()
 
 
 # Register router

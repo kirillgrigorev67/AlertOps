@@ -147,6 +147,36 @@ Supported providers:
 - **OpenAI** (`https://api.openai.com/v1`, model: `gpt-4`)
 - **Local models** (Ollama, LM Studio, etc.)
 
+### Alert History Cleanup
+
+AlertOps automatically cleans up old resolved alerts to prevent the `data/alerts/history` directory from growing indefinitely.
+
+**Configuration** (via `.env`):
+
+```env
+# How many days to keep resolved alerts (default: 90)
+ALERT_HISTORY_RETENTION_DAYS=90
+
+# Action: "delete" or "archive" (default: delete)
+# - delete: permanently removes old alert files
+# - archive: compresses them into tar.gz archives in data/alerts/archives/
+ALERT_HISTORY_CLEANUP_ACTION=delete
+```
+
+**Schedule**: Cleanup runs automatically every day at **3:00 AM UTC**.
+
+**API Endpoints**:
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/cleanup/run?dry_run=true` | Run cleanup in dry-run mode (shows what would be deleted/archived) |
+| POST | `/api/cleanup/run` | Run cleanup immediately |
+| GET | `/api/cleanup/config` | View current cleanup settings |
+| GET | `/api/cleanup/logs` | View recent cleanup operation logs |
+| GET | `/api/cleanup/archives` | List archived alert history files |
+
+**Important**: Only resolved alerts in `history/` are affected. Active (firing/acknowledged/resolving) alerts are never touched by cleanup.
+
 ### Prometheus Configuration
 
 Edit `config/prometheus/prometheus.yml` to add your scrape targets:
