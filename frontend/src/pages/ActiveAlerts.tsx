@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Bell, CheckCircle, Loader, AlertCircle, Eye } from 'lucide-react'
+import { Bell, CheckCircle, Loader, AlertCircle, Eye, Database } from 'lucide-react'
 import api from '../api/client'
 
 interface Alert {
@@ -13,6 +13,7 @@ interface Alert {
   starts_at: string
   diagnosis: string | null
   diagnosis_status: string
+  diagnosis_cached: boolean
   read: boolean
 }
 
@@ -180,6 +181,26 @@ export default function ActiveAlerts() {
                     <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--accent-primary)' }}>
                       AI Diagnosis
                     </span>
+                    {alert.diagnosis_cached && (
+                      <span 
+                        title="This diagnosis was retrieved from cache (identical alert + logs seen before)"
+                        style={{ 
+                          fontSize: '10px', 
+                          fontWeight: 500,
+                          color: 'var(--text-muted)',
+                          backgroundColor: 'var(--bg-secondary)',
+                          padding: '1px 6px',
+                          borderRadius: 'var(--radius-sm)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '3px',
+                          cursor: 'help',
+                        }}
+                      >
+                        <Database size={10} />
+                        cached
+                      </span>
+                    )}
                   </div>
                   <p style={{ fontSize: '13px', lineHeight: '1.5' }}>{alert.diagnosis}</p>
                 </div>

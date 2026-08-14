@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional
 from llm import get_provider, DemoProvider
 from storage import storage
 from config import settings
+from diagnosis_cache import diagnosis_cache
 
 
 DIAGNOSIS_PROMPT = """You are a DevOps expert analyzing a system alert. Based on the alert details and logs, provide:
@@ -88,12 +89,29 @@ class DiagnosisService:
             # Fetch logs from Loki
             logs = await self._fetch_logs(alert)
 
-            # Generate diagnosis
+            # Check cache first
+            fingerprint = alert.get("fingerprint", "")
+            cached = diagnosis_cache.get(fingerprint, logs)
+
+            if cached:
+                # Use cached diagnosis
+                alert["diagnosis"] = cached["diagnosis"]
+                alert["diagnosis_status"] = "completed"
+                alert["diagnosis_cached"] = True
+                alert["updated_at"] = datetime.utcnow().isoformat()
+                storage.save("alerts/active", alert_id, alert)
+                return
+
+            # Generate diagnosis via LLM
             diagnosis = await self._generate_diagnosis(alert, logs)
+
+            # Store in cache for future identical alerts
+            diagnosis_cache.set(fingerprint, logs, diagnosis)
 
             # Update alert with diagnosis
             alert["diagnosis"] = diagnosis
             alert["diagnosis_status"] = "completed"
+            alert["diagnosis_cached"] = False
             alert["updated_at"] = datetime.utcnow().isoformat()
             storage.save("alerts/active", alert_id, alert)
 
@@ -101,6 +119,7 @@ class DiagnosisService:
             # Even if diagnosis fails, alert remains visible
             alert["diagnosis"] = f"Diagnosis failed: {str(e)}"
             alert["diagnosis_status"] = "failed"
+            alert["diagnosis_cached"] = False
             alert["updated_at"] = datetime.utcnow().isoformat()
             storage.save("alerts/active", alert_id, alert)
 

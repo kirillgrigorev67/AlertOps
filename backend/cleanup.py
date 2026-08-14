@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import List, Dict
 
 from config import settings
+from diagnosis_cache import diagnosis_cache
 
 
 class CleanupService:
@@ -130,6 +131,14 @@ class CleanupService:
             f"Cleanup complete: {processed} processed, {deleted} deleted, "
             f"{archived} archived, {errors} errors"
         )
+        
+        # Also cleanup expired diagnosis cache entries
+        try:
+            cache_removed = diagnosis_cache.cleanup_expired()
+            if cache_removed > 0:
+                self._log(f"Cleaned up {cache_removed} expired diagnosis cache entries", "info")
+        except Exception as e:
+            self._log(f"Failed to cleanup diagnosis cache: {e}", "error")
         
         return result
     

@@ -63,6 +63,7 @@ class Alert(BaseModel):
     fingerprint: str
     diagnosis: Optional[str] = None
     diagnosis_status: str = "pending"  # pending, analyzing, completed, failed
+    diagnosis_cached: bool = False  # True if diagnosis came from cache
     read: bool = False
     created_at: str
     updated_at: str

@@ -244,6 +244,18 @@ When an alert fires:
 
 This ensures critical alerts are never delayed by LLM latency.
 
+#### Diagnosis Cache
+
+To avoid unnecessary LLM API calls and costs, AlertOps caches diagnosis results:
+
+- **Cache key**: alert fingerprint + hash of fetched logs
+- **TTL**: 24 hours
+- **Storage**: file-based in `data/diagnosis_cache/`
+- **Behavior**: if an identical alert (same fingerprint + same logs) fires again, the cached diagnosis is returned instantly — no LLM call is made
+- **UI indicator**: cached diagnoses show a **"cached"** badge next to "AI Diagnosis"
+
+Expired cache entries are automatically cleaned up during the daily alert history cleanup.
+
 ### 4. Alert Counter Badge
 
 The sidebar shows a **red badge** next to "Active Alerts" with the current count of all active alerts (both firing and acknowledged). The counter:
