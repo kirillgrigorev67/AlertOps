@@ -44,7 +44,7 @@ export default function CreateAlert() {
   const [condition, setCondition] = useState('> 80')
   const [duration, setDuration] = useState('5m')
   const [severity, setSeverity] = useState('warning')
-  const [resolveTimeout, setResolveTimeout] = useState('5')
+  const [resolveTimeout, setResolveTimeout] = useState('5m')
   const [variants, setVariants] = useState<AlertVariant[]>([])
   const [generating, setGenerating] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -114,7 +114,9 @@ export default function CreateAlert() {
       return
     }
 
-    const timeoutNum = parseInt(resolveTimeout)
+    // Parse resolve timeout - strip 'm' suffix if present
+    const timeoutStr = resolveTimeout.replace(/m$/, '').trim()
+    const timeoutNum = parseInt(timeoutStr)
     if (isNaN(timeoutNum) || timeoutNum < 3) {
       setError('Resolve timeout must be at least 3 minutes')
       return
@@ -267,6 +269,7 @@ export default function CreateAlert() {
                 onChange={e => setResolveTimeout(e.target.value)}
                 placeholder="5m"
               />
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>minutes</div>
             </div>
           </div>
 

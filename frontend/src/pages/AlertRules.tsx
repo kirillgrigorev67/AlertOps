@@ -45,7 +45,7 @@ export default function AlertRules() {
   const [editModalOpen, setEditModalOpen] = useState(false)
   const [editingRule, setEditingRule] = useState<AlertRule | null>(null)
   const [editForm, setEditForm] = useState<Partial<AlertRule>>({})
-  const [editResolveTimeout, setEditResolveTimeout] = useState('5')
+  const [editResolveTimeout, setEditResolveTimeout] = useState('5m')
   const [saving, setSaving] = useState(false)
 
   // AI generation in edit modal
@@ -115,7 +115,7 @@ export default function AlertRules() {
   const openEditModal = (rule: AlertRule) => {
     setEditingRule(rule)
     setEditForm({ ...rule })
-    setEditResolveTimeout(String(rule.resolve_timeout || 5))
+    setEditResolveTimeout(String(rule.resolve_timeout || 5) + 'm')
     setAiVariants([])
     setAiError('')
     loadProviders()
@@ -171,7 +171,9 @@ export default function AlertRules() {
   const saveEdit = async () => {
     if (!editingRule) return
 
-    const timeoutNum = parseInt(editResolveTimeout)
+    // Parse resolve timeout - strip 'm' suffix if present
+    const timeoutStr = editResolveTimeout.replace(/m$/, '').trim()
+    const timeoutNum = parseInt(timeoutStr)
     if (isNaN(timeoutNum) || timeoutNum < 3) {
       setAiError('Resolve timeout must be at least 3 minutes')
       return
@@ -450,6 +452,7 @@ export default function AlertRules() {
                     onChange={(e: { target: { value: string } }) => setEditResolveTimeout(e.target.value)}
                     placeholder="5m"
                   />
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>minutes</div>
                 </div>
               </div>
 
