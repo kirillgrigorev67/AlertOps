@@ -71,10 +71,10 @@ async def _cleanup_resolving_alerts():
             resolve_at = alert.get("resolve_at")
             if resolve_at:
                 try:
+                    alert_id = alert["id"]
                     resolve_dt = datetime.fromisoformat(resolve_at)
                     if now >= resolve_dt:
                         # Already expired, resolve immediately
-                        alert_id = alert["id"]
                         alert["status"] = "resolved"
                         alert["ends_at"] = now.isoformat()
                         alert["updated_at"] = now.isoformat()
@@ -323,6 +323,22 @@ async def delete_rule(rule_id: str):
             await rule_generator.reload_loki()
         else:
             await rule_generator.reload_prometheus()
+        
+        # Move active alerts with the same name to history
+        rule_name = rule.get("name")
+        if rule_name:
+            active_alerts = storage.list("alerts/active")
+            moved_count = 0
+            for alert in active_alerts:
+                if alert.get("alertname") == rule_name:
+                    now = datetime.utcnow().isoformat()
+                    alert["status"] = "resolved"
+                    alert["ends_at"] = now
+                    alert["updated_at"] = now
+                    alert["resolution_reason"] = "rule_deleted"
+                    storage.save("alerts/history", alert["id"], alert)
+                    storage.delete("alerts/active", alert["id"])
+                    moved_count += 1
     
     return {"status": "deleted"}
 

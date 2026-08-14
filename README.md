@@ -231,7 +231,21 @@ The UI fetches dashboards from Grafana via its HTTP API. Each panel shows its qu
 - **Step 3**: Select a variation — name, description, query, condition, and duration are auto-filled. Edit any field if needed, or write your own query completely.
 - **Step 4**: Save — the rule is written as a YAML file and Prometheus is reloaded.
 
-### 3. Alert Processing Pipeline
+### 3. Rule Deletion & Alert Cleanup
+
+When an alert rule is deleted, AlertOps automatically moves any **active alerts** associated with that rule to **alert history**. This ensures:
+
+- **No orphaned alerts** — active alerts without a corresponding rule are cleaned up
+- **History is preserved** — deleted alerts remain accessible in the History page with `resolution_reason: "rule_deleted"`
+- **Active alerts list stays clean** — only alerts with active rules are shown
+
+The deletion pipeline:
+1. Rule is removed from storage and its YAML file is deleted from Prometheus/Loki
+2. Backend searches for active alerts matching the rule's `alertname`
+3. Matching alerts are moved from `alerts/active/` to `alerts/history/` with status `resolved`
+4. UI updates automatically on next poll
+
+### 4. Alert Processing Pipeline
 
 When an alert fires:
 
@@ -256,7 +270,7 @@ To avoid unnecessary LLM API calls and costs, AlertOps caches diagnosis results:
 
 Expired cache entries are automatically cleaned up during the daily alert history cleanup.
 
-### 4. Alert Counter Badge
+### 5. Alert Counter Badge
 
 The sidebar shows a **red badge** next to "Active Alerts" with the current count of all active alerts (both firing and acknowledged). The counter:
 
@@ -265,7 +279,7 @@ The sidebar shows a **red badge** next to "Active Alerts" with the current count
 - Does **not** reset when you open the Active Alerts page
 - Disappears when there are no active alerts
 
-### 5. File Storage
+### 6. File Storage
 
 All data is stored in `./data/`:
 
@@ -310,7 +324,7 @@ The backend exposes a REST API at `http://localhost:8000/api/`. All endpoints re
 | `GET` | `/api/rules` | List all alert rules |
 | `POST` | `/api/rules` | Create a new rule (generates YAML + reloads service) |
 | `PUT` | `/api/rules/{id}` | Update an existing rule |
-| `DELETE` | `/api/rules/{id}` | Delete a rule and its YAML file |
+| `DELETE` | `/api/rules/{id}` | Delete a rule, its YAML file, and move associated active alerts to history |
 
 ### AI Alert Generation
 
