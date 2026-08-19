@@ -39,6 +39,7 @@ class AlertRule(BaseModel):
     condition: str
     duration: str
     severity: str = "warning"
+    folder: Optional[str] = None  # folder/tag for grouping; null/empty = "Uncategorized"
     labels: Dict[str, str] = Field(default_factory=dict)
     annotations: Dict[str, str] = Field(default_factory=dict)
     created_at: Optional[str] = None
@@ -69,6 +70,7 @@ class Alert(BaseModel):
     updated_at: str
     resolve_timeout: int = 5  # minutes (inherited from rule)
     resolve_at: Optional[str] = None  # when resolving will complete
+    folder: Optional[str] = None  # inherited from rule at alert creation time
 
 
 class LLMProvider(BaseModel):

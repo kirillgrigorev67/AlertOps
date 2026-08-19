@@ -130,6 +130,7 @@ services:
       - ./data/backend:/app/data
       - ./config/prometheus/rules:/app/rules
       - ./config/loki/rules:/app/loki-rules
+      - ./backend:/app
     ports:
       - "8000:8000"
     networks:
@@ -160,7 +161,9 @@ services:
     networks:
       - alertops
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:80/health"]
       interval: 10s

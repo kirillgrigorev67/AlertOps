@@ -13,6 +13,16 @@ receivers:
     webhook_configs:
       - url: 'http://backend:8000/api/webhooks/alerts'
         send_resolved: true
+        # Alertmanager automatically retries on:
+        # - Network errors (connection refused, timeout, DNS failure)
+        # - HTTP 5xx responses (server errors)
+        # It does NOT retry on 4xx errors (client errors like 422)
+        # because they indicate a request formatting problem.
+        #
+        # To handle temporary backend unavailability:
+        # - group_interval (10s) controls how often to re-evaluate and retry
+        # - repeat_interval (1h) controls how often to resend firing alerts
+        # Alerts will be re-sent on each group_interval until acknowledged.
 
 inhibit_rules:
   - source_match:

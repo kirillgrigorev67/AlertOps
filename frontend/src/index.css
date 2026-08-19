@@ -104,11 +104,12 @@ input:focus, textarea:focus, select:focus {
 
 .btn-primary {
   background-color: var(--accent-primary);
-  color: white;
+  color: white !important;
 }
 
 .btn-primary:hover {
   background-color: var(--accent-hover);
+  color: white !important;
 }
 
 .btn-secondary {

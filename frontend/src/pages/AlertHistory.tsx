@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { History, Search, AlertCircle, Trash2 } from 'lucide-react'
+import { History, Search, AlertCircle, Trash2, Folder } from 'lucide-react'
 import api from '../api/client'
 import ConfirmModal from '../components/ConfirmModal'
 
@@ -13,6 +13,7 @@ interface Alert {
   starts_at: string
   ends_at: string | null
   diagnosis: string | null
+  folder?: string | null
 }
 
 export default function AlertHistory() {
@@ -23,8 +24,13 @@ export default function AlertHistory() {
   const [selectedAlert, setSelectedAlert] = useState<Alert | null>(null)
   const [confirmOpen, setConfirmOpen] = useState(false)
 
+  // Folder filter
+  const [folders, setFolders] = useState<string[]>([])
+  const [selectedFolder, setSelectedFolder] = useState<string | null>(null)
+
   useEffect(() => {
     loadHistory()
+    loadFolders()
   }, [])
 
   const loadHistory = async () => {
@@ -36,6 +42,15 @@ export default function AlertHistory() {
       setError('Failed to load alert history')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const loadFolders = async () => {
+    try {
+      const data = await api.get<string[]>('/rules/folders')
+      setFolders(data)
+    } catch (err) {
+      console.error('Failed to load folders:', err)
     }
   }
 
@@ -59,11 +74,14 @@ export default function AlertHistory() {
     setConfirmOpen(false)
   }
 
-  const filteredAlerts = alerts.filter(alert => 
-    search === '' || 
-    alert.alertname.toLowerCase().includes(search.toLowerCase()) ||
-    alert.description.toLowerCase().includes(search.toLowerCase())
-  )
+  const filteredAlerts = alerts.filter(alert => {
+    const matchesSearch = search === '' ||
+      alert.alertname.toLowerCase().includes(search.toLowerCase()) ||
+      alert.description.toLowerCase().includes(search.toLowerCase())
+    const matchesFolder = selectedFolder === null ||
+      (selectedFolder === '' ? !alert.folder : alert.folder === selectedFolder)
+    return matchesSearch && matchesFolder
+  })
 
   if (loading) {
     return (
@@ -97,8 +115,40 @@ export default function AlertHistory() {
         )}
       </div>
 
-      <div style={{ marginBottom: '16px' }}>
-        <div style={{ position: 'relative' }}>
+      {/* Filters */}
+      <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
+        {/* Folder dropdown */}
+        <div style={{ position: 'relative', display: 'inline-block' }}>
+          <select
+            value={selectedFolder === null ? '__all__' : selectedFolder}
+            onChange={(e) => {
+              const val = e.target.value
+              if (val === '__all__') setSelectedFolder(null)
+              else setSelectedFolder(val)
+            }}
+            style={{
+              width: 'fit-content',
+              minWidth: '140px',
+              padding: '8px 28px 8px 12px',
+              borderRadius: 'var(--radius-sm)',
+              border: '1px solid var(--border)',
+              background: 'var(--surface)',
+              color: 'var(--text-primary)',
+              fontSize: '14px',
+              cursor: 'pointer',
+              appearance: 'none',
+              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")`,
+              backgroundRepeat: 'no-repeat',
+              backgroundPosition: 'right 6px center',
+            }}
+          >
+            <option value="__all__">All Folders</option>
+            {folders.map(f => (
+              <option key={f} value={f}>{f}</option>
+            ))}
+          </select>
+        </div>
+        <div style={{ position: 'relative', maxWidth: '300px', width: '100%' }}>
           <Search size={16} style={{ 
             position: 'absolute', 
             left: '12px', 
@@ -114,10 +164,15 @@ export default function AlertHistory() {
             style={{ 
               width: '100%', 
               paddingLeft: '36px',
-              maxWidth: '400px'
             }}
           />
         </div>
+      </div>
+
+      {/* Count */}
+      <div style={{ marginBottom: '16px', color: 'var(--text-muted)', fontSize: '14px' }}>
+        {filteredAlerts.length} {filteredAlerts.length === 1 ? 'alert' : 'alerts'}
+        {(search || selectedFolder !== null) && ` (filtered from ${alerts.length})`}
       </div>
 
       {selectedAlert ? (
@@ -134,10 +189,16 @@ export default function AlertHistory() {
             {selectedAlert.alertname}
           </h2>
           
-          <div style={{ marginBottom: '16px' }}>
+          <div style={{ marginBottom: '16px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <span className={`badge badge-${selectedAlert.severity === 'critical' ? 'critical' : selectedAlert.severity === 'warning' ? 'warning' : 'info'}`}>
               {selectedAlert.severity}
             </span>
+            {selectedAlert.folder && (
+              <span className="badge" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-muted)' }}>
+                <Folder size={10} style={{ verticalAlign: 'middle', marginRight: '2px' }} />
+                {selectedAlert.folder}
+              </span>
+            )}
           </div>
 
           <div style={{ marginBottom: '12px' }}>
@@ -195,6 +256,7 @@ export default function AlertHistory() {
           {filteredAlerts.length === 0 ? (
             <div className="empty-state">
               <p>No alerts in history</p>
+              {selectedFolder !== null && <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Try changing the folder filter</p>}
             </div>
           ) : (
             filteredAlerts.map(alert => (
@@ -205,18 +267,24 @@ export default function AlertHistory() {
                 onClick={() => setSelectedAlert(alert)}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
                       <h3 style={{ fontSize: '15px', fontWeight: 600 }}>{alert.alertname}</h3>
                       <span className={`badge badge-${alert.severity === 'critical' ? 'critical' : alert.severity === 'warning' ? 'warning' : 'info'}`}>
                         {alert.severity}
                       </span>
+                      {alert.folder && (
+                        <span className="badge" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-muted)', fontSize: '11px' }}>
+                          <Folder size={10} style={{ verticalAlign: 'middle', marginRight: '2px' }} />
+                          {alert.folder}
+                        </span>
+                      )}
                     </div>
                     <p style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
                       {alert.description}
                     </p>
                   </div>
-                  <div style={{ textAlign: 'right', fontSize: '12px', color: 'var(--text-muted)' }}>
+                  <div style={{ textAlign: 'right', fontSize: '12px', color: 'var(--text-muted)', flexShrink: 0, marginLeft: '12px' }}>
                     <div>{new Date(alert.starts_at).toLocaleDateString()}</div>
                     {alert.ends_at && (
                       <div>Resolved: {new Date(alert.ends_at).toLocaleDateString()}</div>

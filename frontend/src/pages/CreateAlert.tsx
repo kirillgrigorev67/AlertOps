@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { AlertTriangle, Loader, Check, Wand2, Brain } from 'lucide-react'
+import { AlertTriangle, Loader, Check, Wand2, Brain, Folder, FolderPlus, ChevronDown, Search, X } from 'lucide-react'
 import api from '../api/client'
 
 interface AlertVariant {
@@ -45,6 +45,8 @@ export default function CreateAlert() {
   const [duration, setDuration] = useState('5m')
   const [severity, setSeverity] = useState('warning')
   const [resolveTimeout, setResolveTimeout] = useState('5m')
+  const [folder, setFolder] = useState('')
+  const [existingFolders, setExistingFolders] = useState<string[]>([])
   const [variants, setVariants] = useState<AlertVariant[]>([])
   const [generating, setGenerating] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -55,6 +57,7 @@ export default function CreateAlert() {
 
   useEffect(() => {
     loadProviders()
+    loadFolders()
   }, [])
 
   const loadProviders = async () => {
@@ -73,6 +76,15 @@ export default function CreateAlert() {
       console.error('Failed to load providers:', err)
     } finally {
       setProvidersLoading(false)
+    }
+  }
+
+  const loadFolders = async () => {
+    try {
+      const data = await api.get<string[]>('/rules/folders')
+      setExistingFolders(data)
+    } catch (err) {
+      console.error('Failed to load folders:', err)
     }
   }
 
@@ -135,6 +147,7 @@ export default function CreateAlert() {
         condition,
         duration,
         severity,
+        folder: folder.trim() || null,
         resolve_timeout: parseInt(resolveTimeout) || 5,
         labels: {},
         annotations: {
@@ -150,6 +163,29 @@ export default function CreateAlert() {
       setSaving(false)
     }
   }
+
+  const folderIsNew = folder.trim() && !existingFolders.includes(folder.trim())
+  
+  // Folder dropdown state
+  const [folderDropdownOpen, setFolderDropdownOpen] = useState(false)
+  const [folderSearch, setFolderSearch] = useState('')
+  const folderDropdownRef = useRef<HTMLDivElement>(null)
+  
+  // Filter folders by search
+  const filteredFolders = folderSearch.trim() 
+    ? existingFolders.filter(f => f.toLowerCase().includes(folderSearch.toLowerCase()))
+    : existingFolders
+  
+  // Close dropdown on click outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (folderDropdownRef.current && !folderDropdownRef.current.contains(event.target as Node)) {
+        setFolderDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   return (
     <div>
@@ -194,6 +230,235 @@ export default function CreateAlert() {
               rows={3}
               style={{ width: '100%', resize: 'vertical' }}
             />
+          </div>
+
+          {/* Folder selection - Custom Dropdown */}
+          <div style={{ marginBottom: '12px' }} ref={folderDropdownRef}>
+            <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: 500 }}>
+              <Folder size={14} style={{ verticalAlign: 'middle', marginRight: '6px' }} />
+              Folder
+            </label>
+            
+            {/* Dropdown trigger button */}
+            <button
+              type="button"
+              onClick={() => setFolderDropdownOpen(!folderDropdownOpen)}
+              style={{
+                width: '100%',
+                padding: '8px 12px',
+                borderRadius: 'var(--radius-sm)',
+                border: '1px solid var(--border)',
+                background: 'var(--surface)',
+                color: 'var(--text-primary)',
+                fontSize: '14px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                textAlign: 'left',
+              }}
+            >
+              <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Folder size={14} color="var(--text-muted)" />
+                {folder || 'None'}
+                {folderIsNew && (
+                  <span style={{ 
+                    fontSize: '11px', 
+                    color: 'var(--accent-primary)',
+                    background: 'rgba(99, 102, 241, 0.15)',
+                    padding: '2px 6px',
+                    borderRadius: '4px',
+                  }}>
+                    new
+                  </span>
+                )}
+              </span>
+              <ChevronDown 
+                size={16} 
+                color="var(--text-muted)" 
+                style={{ 
+                  transform: folderDropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                  transition: 'transform 0.2s ease',
+                }} 
+              />
+            </button>
+            
+            {/* Dropdown menu */}
+            {folderDropdownOpen && (
+              <div style={{
+                marginTop: '4px',
+                border: '1px solid var(--border)',
+                borderRadius: 'var(--radius-sm)',
+                background: 'var(--surface)',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+                zIndex: 100,
+                position: 'relative',
+              }}>
+                {/* Search input */}
+                <div style={{ padding: '8px', borderBottom: '1px solid var(--border)' }}>
+                  <div style={{ position: 'relative' }}>
+                    <Search size={14} style={{ 
+                      position: 'absolute', 
+                      left: '10px', 
+                      top: '50%', 
+                      transform: 'translateY(-50%)',
+                      color: 'var(--text-muted)',
+                      pointerEvents: 'none',
+                    }} />
+                    <input
+                      type="text"
+                      value={folderSearch}
+                      onChange={e => setFolderSearch(e.target.value)}
+                      placeholder="Search folders..."
+                      autoFocus
+                      style={{ 
+                        width: '100%',
+                        paddingLeft: '32px',
+                        paddingRight: '28px',
+                        paddingTop: '6px',
+                        paddingBottom: '6px',
+                        fontSize: '13px',
+                        border: '1px solid var(--border)',
+                        borderRadius: 'var(--radius-sm)',
+                        background: 'var(--bg-primary)',
+                        color: 'var(--text-primary)',
+                      }}
+                    />
+                    {folderSearch && (
+                      <X 
+                        size={14} 
+                        style={{ 
+                          position: 'absolute', 
+                          right: '8px', 
+                          top: '50%', 
+                          transform: 'translateY(-50%)',
+                          color: 'var(--text-muted)',
+                          cursor: 'pointer',
+                        }}
+                        onClick={() => setFolderSearch('')}
+                      />
+                    )}
+                  </div>
+                </div>
+                
+                {/* Folder list - max 5 visible + scroll */}
+                <div style={{ 
+                  maxHeight: '200px', 
+                  overflowY: 'auto',
+                }}>
+                  {/* None option */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFolder('')
+                      setFolderDropdownOpen(false)
+                      setFolderSearch('')
+                    }}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      border: 'none',
+                      borderBottom: '1px solid var(--border)',
+                      background: folder === '' ? 'rgba(99, 102, 241, 0.1)' : 'transparent',
+                      color: folder === '' ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                      fontSize: '13px',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                    }}
+                  >
+                    <span style={{ fontStyle: 'italic' }}>None</span>
+                    {folder === '' && <Check size={14} style={{ marginLeft: 'auto' }} />}
+                  </button>
+
+                  {/* Existing folders */}
+                  {filteredFolders.length > 0 ? (
+                    filteredFolders.map(f => (
+                      <button
+                        key={f}
+                        type="button"
+                        onClick={() => {
+                          setFolder(f)
+                          setFolderDropdownOpen(false)
+                          setFolderSearch('')
+                        }}
+                        style={{
+                          width: '100%',
+                          padding: '8px 12px',
+                          border: 'none',
+                          borderBottom: '1px solid var(--border)',
+                          background: folder === f ? 'rgba(99, 102, 241, 0.1)' : 'transparent',
+                          color: folder === f ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                          fontSize: '13px',
+                          cursor: 'pointer',
+                          textAlign: 'left',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                        }}
+                      >
+                        <Folder size={14} />
+                        {f}
+                        {folder === f && <Check size={14} style={{ marginLeft: 'auto' }} />}
+                      </button>
+                    ))
+                  ) : folderSearch.trim() ? (
+                    <div style={{ 
+                      padding: '12px', 
+                      textAlign: 'center', 
+                      color: 'var(--text-muted)',
+                      fontSize: '13px',
+                    }}>
+                      No folders found. Type to create new.
+                    </div>
+                  ) : existingFolders.length === 0 ? (
+                    <div style={{ 
+                      padding: '12px', 
+                      textAlign: 'center', 
+                      color: 'var(--text-muted)',
+                      fontSize: '13px',
+                    }}>
+                      No folders yet. Type to create new.
+                    </div>
+                  ) : null}
+                </div>
+                
+                {/* Create new folder hint */}
+                {folderSearch.trim() && !existingFolders.includes(folderSearch.trim()) && (
+                  <div style={{ 
+                    padding: '8px 12px', 
+                    borderTop: '1px solid var(--border)',
+                    background: 'rgba(99, 102, 241, 0.05)',
+                  }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFolder(folderSearch.trim())
+                        setFolderDropdownOpen(false)
+                        setFolderSearch('')
+                      }}
+                      style={{
+                        width: '100%',
+                        border: 'none',
+                        background: 'none',
+                        color: 'var(--accent-primary)',
+                        fontSize: '13px',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                      }}
+                    >
+                      <FolderPlus size={14} />
+                      Create "{folderSearch.trim()}"
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {isStandalone && (

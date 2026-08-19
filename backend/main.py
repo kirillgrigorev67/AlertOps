@@ -2,7 +2,7 @@ import asyncio
 import os
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -28,9 +28,16 @@ from storage import storage
 from grafana_client import grafana
 from rule_generator import rule_generator
 from query_validator import query_validator
+import folders as folder_manager
 from alert_ai_generator import alert_ai_generator
 from diagnosis import diagnosis_service
 from cleanup import cleanup_service
+from webhook_queue import webhook_queue
+
+def utc_now_iso() -> str:
+    """Return current UTC time in ISO 8601 format with 'Z' suffix."""
+    return datetime.utcnow().isoformat() + "Z"
+
 
 DATA_DIR = os.environ.get("DATA_DIR", "./data")
 
@@ -38,9 +45,9 @@ DATA_DIR = os.environ.get("DATA_DIR", "./data")
 async def _process_delayed_resolve(alert_id: str, resolve_at: str):
     """Background task: move alert to history after resolve_timeout expires."""
     try:
-        # Parse resolve_at
-        resolve_dt = datetime.fromisoformat(resolve_at)
-        now = datetime.utcnow()
+        # Parse resolve_at (offset-aware with 'Z')
+        resolve_dt = datetime.fromisoformat(resolve_at.replace("Z", "+00:00"))
+        now = datetime.now(timezone.utc)
         
         # Calculate sleep duration
         sleep_seconds = (resolve_dt - now).total_seconds()
@@ -50,21 +57,78 @@ async def _process_delayed_resolve(alert_id: str, resolve_at: str):
         # Check if alert is still resolving
         alert = storage.get("alerts/active", alert_id)
         if alert and alert.get("status") == "resolving":
-            now = datetime.utcnow().isoformat()
+            now = utc_now_iso()
             alert["status"] = "resolved"
             alert["ends_at"] = now
             alert["updated_at"] = now
             storage.save("alerts/history", alert_id, alert)
             storage.delete("alerts/active", alert_id)
+            # Remove from persistent queue if present
+            webhook_queue.dequeue(alert_id)
             print(f"Alert {alert_id} auto-resolved after timeout")
     except Exception as e:
         print(f"Error in delayed resolve for {alert_id}: {e}")
 
 
+async def _process_webhook_queue():
+    """Process pending resolved alerts from persistent queue on startup."""
+    pending = webhook_queue.list_pending()
+    if not pending:
+        return
+    
+    print(f"Processing {len(pending)} pending resolved alerts from queue")
+    for item in pending:
+        alert_id = item.get("alert_id")
+        resolve_at = item.get("resolve_at")
+        
+        if not alert_id or not resolve_at:
+            webhook_queue.dequeue(alert_id)
+            continue
+        
+        # Check if alert still exists and is in resolving state
+        alert = storage.get("alerts/active", alert_id)
+        if not alert:
+            # Alert already gone, remove from queue
+            webhook_queue.dequeue(alert_id)
+            continue
+        
+        if alert.get("status") == "resolving":
+            # Check if timeout already expired
+            try:
+                resolve_dt = datetime.fromisoformat(resolve_at.replace("Z", "+00:00"))
+                if datetime.now(timezone.utc) >= resolve_dt:
+                    # Expired, resolve immediately
+                    alert["status"] = "resolved"
+                    alert["ends_at"] = utc_now_iso()
+                    alert["updated_at"] = utc_now_iso()
+                    storage.save("alerts/history", alert_id, alert)
+                    storage.delete("alerts/active", alert_id)
+                    webhook_queue.dequeue(alert_id)
+                    print(f"Alert {alert_id} resolved from queue (expired timeout)")
+                else:
+                    # Re-schedule background task
+                    asyncio.create_task(_process_delayed_resolve(alert_id, resolve_at))
+                    print(f"Re-scheduled delayed resolve from queue for {alert_id}")
+            except Exception as e:
+                print(f"Error processing queued alert {alert_id}: {e}")
+                webhook_queue.increment_attempts(alert_id)
+        elif alert.get("status") in ("firing", "acknowledged"):
+            # Alert was reset to firing, need to re-resolve
+            alert["status"] = "resolving"
+            alert["resolve_at"] = resolve_at
+            alert["updated_at"] = utc_now_iso()
+            storage.save("alerts/active", alert_id, alert)
+            asyncio.create_task(_process_delayed_resolve(alert_id, resolve_at))
+            print(f"Re-queued resolve for {alert_id} (was firing/acknowledged)")
+        else:
+            # Already resolved or moved, clean up queue
+            webhook_queue.dequeue(alert_id)
+
+
 async def _cleanup_resolving_alerts():
     """On startup: check all resolving alerts and process expired ones."""
     active_alerts = storage.list("alerts/active")
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     
     for alert in active_alerts:
         if alert.get("status") == "resolving":
@@ -72,12 +136,24 @@ async def _cleanup_resolving_alerts():
             if resolve_at:
                 try:
                     alert_id = alert["id"]
-                    resolve_dt = datetime.fromisoformat(resolve_at)
+                    # Ensure resolve_dt is offset-aware
+                    if resolve_at.endswith("Z"):
+                        resolve_dt = datetime.fromisoformat(resolve_at.replace("Z", "+00:00"))
+                    elif "+" not in resolve_at and "-" not in resolve_at[10:]:
+                        # No timezone info, assume UTC
+                        resolve_dt = datetime.fromisoformat(resolve_at).replace(tzinfo=timezone.utc)
+                    else:
+                        resolve_dt = datetime.fromisoformat(resolve_at)
+                    
+                    # Ensure now is offset-aware
+                    if now.tzinfo is None:
+                        now = now.replace(tzinfo=timezone.utc)
+                    
                     if now >= resolve_dt:
                         # Already expired, resolve immediately
                         alert["status"] = "resolved"
-                        alert["ends_at"] = now.isoformat()
-                        alert["updated_at"] = now.isoformat()
+                        alert["ends_at"] = utc_now_iso()
+                        alert["updated_at"] = utc_now_iso()
                         storage.save("alerts/history", alert_id, alert)
                         storage.delete("alerts/active", alert_id)
                         print(f"Alert {alert_id} resolved on startup (expired timeout)")
@@ -87,6 +163,288 @@ async def _cleanup_resolving_alerts():
                         print(f"Re-scheduled delayed resolve for {alert_id}")
                 except Exception as e:
                     print(f"Error processing resolving alert {alert['id']}: {e}")
+
+
+async def _check_rule_exists_in_prometheus(alertname: str) -> bool:
+    """Check if a rule with given alertname exists in Prometheus."""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                f"{settings.prometheus_url}/api/v1/rules",
+                timeout=5.0,
+            )
+            if response.status_code != 200:
+                return False
+            
+            data = response.json()
+            for group in data.get("data", {}).get("groups", []):
+                for rule in group.get("rules", []):
+                    if rule.get("name") == alertname:
+                        return True
+            return False
+    except Exception as e:
+        print(f"Error checking rule in Prometheus: {e}")
+        return False
+
+
+async def _sync_with_alertmanager():
+    """Periodic sync: check Alertmanager for active alerts and clean up zombies.
+    
+    Logic:
+    - firing + AM knows about it → keep as-is
+    - firing + AM doesn't know → zombie cleanup
+    - acknowledged + AM says active/firing → reset to firing (alert is still firing)
+    - acknowledged + AM says resolved → start resolving (delayed move to history)
+    - acknowledged + AM doesn't know + rule exists in Prometheus → reset to firing (fingerprint changed)
+    - acknowledged + AM doesn't know + rule deleted → zombie cleanup
+    """
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                f"{settings.alertmanager_url}/api/v2/alerts?active=true"
+            )
+            if response.status_code != 200:
+                return
+            
+            am_alerts = response.json()
+            # Build map of (fingerprint, alertname) -> alert data from Alertmanager
+            am_map = {}
+            am_names = set()  # Set of alertnames that AM knows about
+            for am_alert in am_alerts:
+                fp = am_alert.get("fingerprint", "")
+                name = am_alert.get("labels", {}).get("alertname", "")
+                if name:
+                    am_names.add(name)
+                if fp and name:
+                    status_obj = am_alert.get("status", {})
+                    if isinstance(status_obj, dict):
+                        state = status_obj.get("state", "active")
+                    else:
+                        state = "active"
+                    am_map[(fp, name)] = {
+                        "state": state,
+                        "ends_at": am_alert.get("endsAt"),
+                    }
+            
+            # Check our active alerts
+            active_alerts = storage.list("alerts/active")
+            cleaned = 0
+            reset_to_firing = 0
+            
+            for alert in active_alerts:
+                fp = alert.get("fingerprint", "")
+                name = alert.get("alertname", "")
+                alert_id = alert["id"]
+                status = alert.get("status")
+                am_data = am_map.get((fp, name))
+                
+                if status == "firing":
+                    if not am_data:
+                        # AM doesn't know this exact fingerprint
+                        # Check if AM knows the alertname at all
+                        if name in am_names:
+                            # AM knows the alertname but with different fingerprint
+                            # → rule was recreated, update fingerprint
+                            new_fp = None
+                            for (am_fp, am_name), am_info in am_map.items():
+                                if am_name == name and am_info["state"] == "active":
+                                    new_fp = am_fp
+                                    break
+                            
+                            if new_fp:
+                                alert["fingerprint"] = new_fp
+                                alert["updated_at"] = utc_now_iso()
+                                storage.save("alerts/active", alert_id, alert)
+                                print(f"Updated fingerprint for firing alert {alert_id} ({name})")
+                            # If no active alert found with this name, keep as-is
+                            # (might be resolved but not yet processed)
+                        else:
+                            # AM doesn't know this alertname at all
+                            # Check if rule still exists in Prometheus
+                            rule_exists = await _check_rule_exists_in_prometheus(name)
+                            if rule_exists:
+                                # Rule exists but AM doesn't know about it → alert is resolved
+                                # Start delayed resolve (same as resolved webhook)
+                                resolve_timeout = alert.get("resolve_timeout", 5)
+                                resolve_at = (datetime.now(timezone.utc) + __import__('datetime').timedelta(minutes=resolve_timeout)).isoformat().replace("+00:00", "Z")
+                                alert["status"] = "resolving"
+                                alert["resolve_at"] = resolve_at
+                                alert["updated_at"] = utc_now_iso()
+                                storage.save("alerts/active", alert_id, alert)
+                                webhook_queue.enqueue(alert_id, resolve_at)
+                                asyncio.create_task(_process_delayed_resolve(alert_id, resolve_at))
+                                print(f"Alert {alert_id} ({name}) started resolving (not in Alertmanager, rule exists)")
+                            else:
+                                # Rule deleted → zombie cleanup
+                                alert["status"] = "resolved"
+                                alert["ends_at"] = utc_now_iso()
+                                alert["updated_at"] = utc_now_iso()
+                                alert["resolution_reason"] = "zombie_cleanup"
+                                storage.save("alerts/history", alert_id, alert)
+                                storage.delete("alerts/active", alert_id)
+                                webhook_queue.dequeue(alert_id)
+                                cleaned += 1
+                                print(f"Cleaned up zombie alert {alert_id} ({name}) (rule deleted)")
+                    # If AM knows about it, do nothing (keep firing)
+                
+                elif status == "acknowledged":
+                    if am_data and am_data["state"] == "active":
+                        # Alertmanager knows about it and it's active → reset to firing
+                        alert["status"] = "firing"
+                        alert["acknowledged_at"] = None
+                        alert["updated_at"] = utc_now_iso()
+                        storage.save("alerts/active", alert_id, alert)
+                        reset_to_firing += 1
+                        print(f"Reset acknowledged alert {alert_id} ({name}) to firing (still active in AM)")
+                    elif not am_data:
+                        # Alertmanager doesn't know about this exact fingerprint
+                        # Check if AM knows about the alertname at all
+                        if name in am_names:
+                            # AM knows the alertname but with different fingerprint
+                            # → rule was recreated, reset to firing with new fingerprint
+                            # Find the new fingerprint from AM
+                            new_fp = None
+                            for (am_fp, am_name), am_info in am_map.items():
+                                if am_name == name and am_info["state"] == "active":
+                                    new_fp = am_fp
+                                    break
+                            
+                            if new_fp:
+                                alert["status"] = "firing"
+                                alert["fingerprint"] = new_fp
+                                alert["acknowledged_at"] = None
+                                alert["updated_at"] = utc_now_iso()
+                                storage.save("alerts/active", alert_id, alert)
+                                reset_to_firing += 1
+                                print(f"Reset acknowledged alert {alert_id} ({name}) to firing with new fingerprint")
+                            else:
+                                # AM knows the name but no active alerts → might be resolved
+                                # Keep as acknowledged, wait for resolved webhook
+                                pass
+                        else:
+                            # AM doesn't know this alertname at all
+                            # Check if rule still exists in Prometheus
+                            rule_exists = await _check_rule_exists_in_prometheus(name)
+                            if rule_exists:
+                                # Rule exists but AM doesn't know about it → might be transient
+                                # Reset to firing to let user re-acknowledge if needed
+                                alert["status"] = "firing"
+                                alert["acknowledged_at"] = None
+                                alert["updated_at"] = utc_now_iso()
+                                storage.save("alerts/active", alert_id, alert)
+                                reset_to_firing += 1
+                                print(f"Reset acknowledged alert {alert_id} ({name}) to firing (rule exists in Prometheus)")
+                            else:
+                                # Rule deleted → zombie cleanup
+                                alert["status"] = "resolved"
+                                alert["ends_at"] = utc_now_iso()
+                                alert["updated_at"] = utc_now_iso()
+                                alert["resolution_reason"] = "zombie_cleanup"
+                                storage.save("alerts/history", alert_id, alert)
+                                storage.delete("alerts/active", alert_id)
+                                webhook_queue.dequeue(alert_id)
+                                cleaned += 1
+                                print(f"Cleaned up zombie acknowledged alert {alert_id} ({name}) (rule deleted)")
+            
+            if cleaned > 0 or reset_to_firing > 0:
+                print(f"Alertmanager sync: cleaned up {cleaned} zombies, reset {reset_to_firing} to firing")
+    except Exception as e:
+        print(f"Alertmanager sync error: {e}")
+
+
+async def _alertmanager_sync_loop():
+    """Background loop: sync with Alertmanager every 60 seconds."""
+    while True:
+        await asyncio.sleep(60)
+        await _sync_with_alertmanager()
+
+
+async def _sync_active_alerts_from_alertmanager():
+    """On startup: fetch active alerts from Alertmanager and create missing ones."""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                f"{settings.alertmanager_url}/api/v2/alerts?active=true"
+            )
+            if response.status_code != 200:
+                print(f"Failed to fetch alerts from Alertmanager: {response.status_code}")
+                return
+            
+            am_alerts = response.json()
+            created = 0
+            
+            for am_alert in am_alerts:
+                # Alertmanager v2 API: status is an object with "state" field
+                status_obj = am_alert.get("status", {})
+                if isinstance(status_obj, dict):
+                    if status_obj.get("state") != "active":
+                        continue
+                elif status_obj != "firing":
+                    continue
+                
+                fingerprint = am_alert.get("fingerprint", "")
+                alertname = am_alert.get("labels", {}).get("alertname", "Unknown")
+                
+                if not fingerprint:
+                    continue
+                
+                # Check if we already have this alert
+                active_alerts = storage.list("alerts/active")
+                existing = None
+                for a in active_alerts:
+                    if a.get("fingerprint") == fingerprint and a.get("alertname") == alertname:
+                        existing = a
+                        break
+                
+                if existing:
+                    continue  # Already have this alert
+                
+                # Create new alert from Alertmanager data
+                now = utc_now_iso()
+                alert_id = str(uuid.uuid4())
+                
+                # Try to find matching rule for resolve_timeout and folder
+                resolve_timeout = 5
+                folder = None
+                rules = storage.list("rules")
+                for rule in rules:
+                    if rule.get("name") == alertname:
+                        resolve_timeout = rule.get("resolve_timeout", 5)
+                        folder = rule.get("folder")
+                        break
+                
+                alert = {
+                    "id": alert_id,
+                    "alertname": alertname,
+                    "status": "firing",
+                    "severity": am_alert.get("labels", {}).get("severity", "warning"),
+                    "summary": am_alert.get("annotations", {}).get("summary", ""),
+                    "description": am_alert.get("annotations", {}).get("description", ""),
+                    "labels": am_alert.get("labels", {}),
+                    "annotations": am_alert.get("annotations", {}),
+                    "starts_at": am_alert.get("startsAt", now),
+                    "ends_at": None,
+                    "generator_url": am_alert.get("generatorURL", ""),
+                    "fingerprint": fingerprint,
+                    "diagnosis": None,
+                    "diagnosis_status": "pending",
+                    "read": False,
+                    "created_at": now,
+                    "updated_at": now,
+                    "resolve_timeout": resolve_timeout,
+                    "resolve_at": None,
+                    "folder": folder,
+                }
+                storage.save("alerts/active", alert_id, alert)
+                # Trigger background diagnosis
+                asyncio.create_task(diagnosis_service.run_diagnosis(alert_id))
+                created += 1
+                print(f"Created alert from Alertmanager sync: {alertname} ({fingerprint})")
+            
+            if created > 0:
+                print(f"Alertmanager sync: created {created} missing active alerts")
+    except Exception as e:
+        print(f"Error syncing active alerts from Alertmanager: {e}")
 
 
 @asynccontextmanager
@@ -114,6 +472,9 @@ async def lifespan(app: FastAPI):
     # Cleanup resolving alerts from previous run
     await _cleanup_resolving_alerts()
     
+    # Process pending resolved alerts from persistent queue
+    await _process_webhook_queue()
+    
     # Start scheduled cleanup job for alert history
     scheduler = AsyncIOScheduler()
     scheduler.add_job(
@@ -125,6 +486,13 @@ async def lifespan(app: FastAPI):
     )
     scheduler.start()
     print(f"Started alert history cleanup scheduler (retention: {settings.alert_history_retention_days} days, action: {settings.alert_history_cleanup_action})")
+    
+    # Sync active alerts from Alertmanager on startup
+    await _sync_active_alerts_from_alertmanager()
+    
+    # Start background sync loop with Alertmanager
+    asyncio.create_task(_alertmanager_sync_loop())
+    print("Started Alertmanager sync loop (every 60s)")
     
     yield
     
@@ -266,16 +634,76 @@ async def get_panels(uid: str):
 
 # Alert Rules
 @api_router.get("/rules", response_model=List[AlertRule])
-async def list_rules():
-    return storage.list("rules")
+async def list_rules(folder: Optional[str] = None):
+    rules = storage.list("rules")
+    if folder is not None:
+        if folder == "":
+            rules = [r for r in rules if not r.get("folder")]
+        else:
+            rules = [r for r in rules if r.get("folder") == folder]
+    return rules
+
+
+@api_router.get("/rules/folders")
+async def list_folders():
+    """Return all folder names, including empty ones."""
+    return folder_manager.list_folders()
+
+
+@api_router.post("/rules/folders")
+async def create_folder(data: Dict[str, str]):
+    """Create a new folder."""
+    name = data.get("name", "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name is required")
+    try:
+        folder_manager.create_folder(name)
+        return {"status": "created", "name": name}
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+
+@api_router.post("/rules/folders/rename")
+async def rename_folder(data: Dict[str, str]):
+    """Rename a folder across all alert rules and the folder list."""
+    old_name = data.get("old_name", "").strip()
+    new_name = data.get("new_name", "").strip()
+    if not old_name:
+        raise HTTPException(status_code=400, detail="old_name is required")
+    if old_name == new_name:
+        return {"status": "no_change", "updated": 0}
+    
+    try:
+        folder_manager.rename_folder(old_name, new_name)
+        return {"status": "renamed", "from": old_name, "to": new_name}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@api_router.delete("/rules/folders/{folder_name}")
+async def delete_folder(folder_name: str):
+    """Delete a folder. Rules in this folder become uncategorized."""
+    try:
+        folder_manager.delete_folder(folder_name)
+        return {"status": "deleted", "name": folder_name}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @api_router.post("/rules", response_model=AlertRule)
 async def create_rule(rule: AlertRule):
-    now = datetime.utcnow().isoformat()
+    now = utc_now_iso()
     rule.created_at = now
     rule.updated_at = now
     storage.save("rules", rule.id, rule.dict())
+    
+    # Ensure folder is tracked in folders list
+    if rule.folder:
+        try:
+            folder_manager.create_folder(rule.folder)
+        except ValueError:
+            # Folder already exists, ignore
+            pass
     
     # Generate and write rule file
     if rule.query_type == "logql":
@@ -331,7 +759,7 @@ async def delete_rule(rule_id: str):
             moved_count = 0
             for alert in active_alerts:
                 if alert.get("alertname") == rule_name:
-                    now = datetime.utcnow().isoformat()
+                    now = utc_now_iso()
                     alert["status"] = "resolved"
                     alert["ends_at"] = now
                     alert["updated_at"] = now
@@ -351,7 +779,7 @@ async def update_rule(rule_id: str, rule: AlertRule):
         raise HTTPException(status_code=404, detail="Rule not found")
     
     # Preserve original id and created_at
-    now = datetime.utcnow().isoformat()
+    now = utc_now_iso()
     rule.id = rule_id
     rule.created_at = existing.get("created_at", now)
     rule.updated_at = now
@@ -438,7 +866,7 @@ async def receive_alert_webhook(
     resolved_count = 0
     
     for alert_data in alerts:
-        now = datetime.utcnow().isoformat()
+        now = utc_now_iso()
         status = alert_data.get("status", "firing")
         fingerprint = alert_data.get("fingerprint", "")
         alertname = alert_data.get("labels", {}).get("alertname", "Unknown")
@@ -464,12 +892,14 @@ async def receive_alert_webhook(
             else:
                 # Create new active alert
                 alert_id = str(uuid.uuid4())
-                # Try to find matching rule to get resolve_timeout
+                # Try to find matching rule to get resolve_timeout and folder
                 resolve_timeout = 5  # default
+                folder = None
                 rules = storage.list("rules")
                 for rule in rules:
                     if rule.get("name") == alertname:
                         resolve_timeout = rule.get("resolve_timeout", 5)
+                        folder = rule.get("folder")
                         break
                 
                 alert = {
@@ -492,6 +922,7 @@ async def receive_alert_webhook(
                     "updated_at": now,
                     "resolve_timeout": resolve_timeout,
                     "resolve_at": None,
+                    "folder": folder,
                 }
                 storage.save("alerts/active", alert_id, alert)
                 # Trigger background diagnosis only for new firing alerts
@@ -512,11 +943,13 @@ async def receive_alert_webhook(
                 existing_status = existing.get("status")
                 if existing_status in ("firing", "acknowledged"):
                     resolve_timeout = existing.get("resolve_timeout", 5)
-                    resolve_at = (datetime.utcnow() + __import__('datetime').timedelta(minutes=resolve_timeout)).isoformat()
+                    resolve_at = (datetime.now(timezone.utc) + __import__('datetime').timedelta(minutes=resolve_timeout)).isoformat().replace("+00:00", "Z")
                     existing["status"] = "resolving"
                     existing["resolve_at"] = resolve_at
                     existing["updated_at"] = now
                     storage.save("alerts/active", existing["id"], existing)
+                    # Save to persistent queue for reliability across restarts
+                    webhook_queue.enqueue(existing["id"], resolve_at)
                     # Schedule background task to complete resolve after timeout
                     background_tasks.add_task(_process_delayed_resolve, existing["id"], resolve_at)
                     resolved_count += 1
@@ -603,7 +1036,7 @@ async def mark_all_alerts_read():
     for alert in alerts:
         if not alert.get("read", False):
             alert["read"] = True
-            alert["updated_at"] = datetime.utcnow().isoformat()
+            alert["updated_at"] = utc_now_iso()
             storage.save("alerts/active", alert["id"], alert)
             count += 1
     
@@ -629,7 +1062,7 @@ async def mark_alert_read(alert_id: str):
         raise HTTPException(status_code=404, detail="Alert not found")
     
     alert["read"] = True
-    alert["updated_at"] = datetime.utcnow().isoformat()
+    alert["updated_at"] = utc_now_iso()
     storage.save("alerts/active", alert_id, alert)
     
     return {"status": "read"}
@@ -643,13 +1076,43 @@ async def resolve_alert(alert_id: str):
         raise HTTPException(status_code=404, detail="Alert not found")
     
     alert["status"] = "acknowledged"
-    alert["acknowledged_at"] = datetime.utcnow().isoformat()
-    alert["updated_at"] = datetime.utcnow().isoformat()
+    alert["acknowledged_at"] = utc_now_iso()
+    alert["updated_at"] = utc_now_iso()
     
     # Keep in active, just mark as acknowledged
     storage.save("alerts/active", alert_id, alert)
     
     return {"status": "acknowledged"}
+
+
+@api_router.post("/alerts/{alert_id}/force-resolve")
+async def force_resolve_alert(alert_id: str):
+    """Force move an alert to history immediately. Use when Alertmanager resolved webhook was lost."""
+    alert = storage.get("alerts/active", alert_id)
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    
+    now = utc_now_iso()
+    alert["status"] = "resolved"
+    alert["ends_at"] = now
+    alert["updated_at"] = now
+    alert["resolution_reason"] = "manual_force_resolve"
+    
+    storage.save("alerts/history", alert_id, alert)
+    storage.delete("alerts/active", alert_id)
+    webhook_queue.dequeue(alert_id)
+    
+    return {"status": "resolved", "message": "Alert moved to history"}
+
+
+@api_router.get("/webhooks/queue")
+async def get_webhook_queue():
+    """Get pending resolved alerts from persistent queue (for debugging)."""
+    pending = webhook_queue.list_pending()
+    return {
+        "pending_count": len(pending),
+        "items": pending,
+    }
 
 
 # LLM Providers
@@ -660,7 +1123,7 @@ async def list_providers():
 
 @api_router.post("/providers", response_model=LLMProvider)
 async def create_provider(provider: LLMProvider):
-    now = datetime.utcnow().isoformat()
+    now = utc_now_iso()
     provider.created_at = now
     
     # If this is the first provider or marked as default, unset others

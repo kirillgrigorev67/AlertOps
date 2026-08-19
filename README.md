@@ -321,10 +321,19 @@ The backend exposes a REST API at `http://localhost:8000/api/`. All endpoints re
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/api/rules` | List all alert rules |
+| `GET` | `/api/rules` | List all alert rules (optionally filter by `?folder=<name>`) |
 | `POST` | `/api/rules` | Create a new rule (generates YAML + reloads service) |
 | `PUT` | `/api/rules/{id}` | Update an existing rule |
 | `DELETE` | `/api/rules/{id}` | Delete a rule, its YAML file, and move associated active alerts to history |
+
+### Alert Rule Folders
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/rules/folders` | List all folder names (including empty ones) |
+| `POST` | `/api/rules/folders` | Create a new folder (`{"name": "My Folder"}`) |
+| `POST` | `/api/rules/folders/rename` | Rename a folder (`{"old_name": "X", "new_name": "Y"}`) |
+| `DELETE` | `/api/rules/folders/{folder_name}` | Delete a folder (rules become uncategorized) |
 
 ### AI Alert Generation
 
@@ -338,6 +347,7 @@ The backend exposes a REST API at `http://localhost:8000/api/`. All endpoints re
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `POST` | `/api/webhooks/alerts` | Receive alerts from Alertmanager |
+| `GET` | `/api/webhooks/queue` | Debug: list pending resolved alerts in persistent queue |
 
 ### Active Alerts
 
@@ -349,6 +359,7 @@ The backend exposes a REST API at `http://localhost:8000/api/`. All endpoints re
 | `GET` | `/api/alerts/{id}` | Get a single alert (searches active, then history) |
 | `POST` | `/api/alerts/{id}/read` | Mark one alert as read |
 | `POST` | `/api/alerts/{id}/resolve` | Acknowledge an alert (status → acknowledged) |
+| `POST` | `/api/alerts/{id}/force-resolve` | Force move alert to history immediately (use when Alertmanager resolved webhook was lost) |
 
 ### Alert History
 

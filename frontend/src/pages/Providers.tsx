@@ -213,8 +213,11 @@ export default function Providers() {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-        <h1 className="page-title">LLM Providers</h1>
+      <div className="header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <h1 className="page-title">
+          <Settings size={28} style={{ verticalAlign: 'middle', marginRight: '8px' }} />
+          LLM Providers
+        </h1>
         <div style={{ display: 'flex', gap: '8px' }}>
           <button className="btn btn-secondary" onClick={testAllProviders} disabled={providers.length === 0}>
             <RefreshCw size={16} />
