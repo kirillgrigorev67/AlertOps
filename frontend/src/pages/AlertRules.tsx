@@ -9,6 +9,8 @@ import {
   Clock,
   Tag,
   Bell,
+  BellOff,
+  BellRing,
   X,
   Save,
   Loader,
@@ -39,6 +41,12 @@ interface AlertRule {
   annotations: Record<string, string>
   created_at: string
   updated_at: string
+  silenced_until?: string | null
+}
+
+interface FolderInfo {
+  name: string
+  silenced_until?: string | null
 }
 
 interface LLMProvider {
@@ -56,6 +64,13 @@ interface AlertVariant {
   duration: string
 }
 
+const SILENCE_DURATION_OPTIONS = [
+  { label: '1 hour', value: 60 },
+  { label: '4 hours', value: 240 },
+  { label: '24 hours', value: 1440 },
+  { label: 'Until manually unsilenced', value: -1 },
+]
+
 export default function AlertRules() {
   const [rules, setRules] = useState<AlertRule[]>([])
   const [loading, setLoading] = useState(true)
@@ -71,7 +86,7 @@ export default function AlertRules() {
   const [, setExistingFolders] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
 
-  const [folders, setFolders] = useState<string[]>([])
+  const [folders, setFolders] = useState<FolderInfo[]>([])
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null)
 
   const [providers, setProviders] = useState<LLMProvider[]>([])
@@ -96,6 +111,12 @@ export default function AlertRules() {
   const [folderToDelete, setFolderToDelete] = useState<string | null>(null)
   const [deleteFolderWithAlerts, setDeleteFolderWithAlerts] = useState(false)
   const [folderDeleteError, setFolderDeleteError] = useState('')
+
+  // Silence state
+  const [silenceModalOpen, setSilenceModalOpen] = useState(false)
+  const [silenceTarget, setSilenceTarget] = useState<{ type: 'rule' | 'folder'; id: string; name: string } | null>(null)
+  const [silenceDuration, setSilenceDuration] = useState<number>(60)
+  const [silenceLoading, setSilenceLoading] = useState(false)
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -130,8 +151,8 @@ export default function AlertRules() {
 
   const loadFolders = async () => {
     try {
-      const data = await api.get<string[]>('/rules/folders')
-      setExistingFolders(data)
+      const data = await api.get<FolderInfo[]>('/rules/folders')
+      setExistingFolders(data.map(f => f.name))
       setFolders(data)
     } catch (err) {
       console.error('Failed to load folders:', err)
@@ -293,12 +314,11 @@ export default function AlertRules() {
     )
   })
 
-  const groupRulesByFolder = (rulesList: AlertRule[], allFolders: string[]) => {
+  const groupRulesByFolder = (rulesList: AlertRule[], allFolders: FolderInfo[]) => {
     const groups: Record<string, AlertRule[]> = {}
 
-    // Initialize all folders (even empty ones)
     for (const folder of allFolders) {
-      groups[folder] = []
+      groups[folder.name] = []
     }
 
     for (const rule of rulesList) {
@@ -315,16 +335,15 @@ export default function AlertRules() {
   const groupedRules = groupRulesByFolder(filteredRules, folders)
   const rulesWithoutFolder = filteredRules.filter((rule: AlertRule) => !rule.folder)
 
-  // When searching, only show folders that match search OR contain matching rules
   const activeFolders = searchQuery
     ? folders.filter(folder => {
-        const folderMatches = folder.toLowerCase().includes(searchQuery.toLowerCase())
-        const hasMatchingRules = groupedRules[folder] && groupedRules[folder].length > 0
+        const folderMatches = folder.name.toLowerCase().includes(searchQuery.toLowerCase())
+        const hasMatchingRules = groupedRules[folder.name] && groupedRules[folder.name].length > 0
         return folderMatches || hasMatchingRules
       })
     : folders
 
-  const folderKeys = activeFolders.sort()
+  const folderKeys = activeFolders.map(f => f.name).sort()
 
   const toggleFolder = (folderKey: string) => {
     setExpandedFolders(previous => {
@@ -407,14 +426,12 @@ export default function AlertRules() {
 
     const folderRuleCount = groupedRules[folderToDelete]?.length || 0
 
-    // If folder has alerts, require consent
     if (folderRuleCount > 0 && !deleteFolderWithAlerts) {
       setFolderDeleteError(`Folder "${folderToDelete}" contains ${folderRuleCount} alert rule(s). Please confirm deletion by checking the box below.`)
       return
     }
 
     try {
-      // Delete all rules in the folder first
       if (folderRuleCount > 0) {
         const rulesToDelete = groupedRules[folderToDelete]
         for (const rule of rulesToDelete) {
@@ -422,7 +439,6 @@ export default function AlertRules() {
         }
       }
 
-      // Then delete the folder
       await api.delete(`/rules/folders/${encodeURIComponent(folderToDelete)}`)
       await loadFolders()
       await loadRules()
@@ -444,6 +460,69 @@ export default function AlertRules() {
     setFolderToDelete(null)
     setDeleteFolderWithAlerts(false)
     setFolderDeleteError('')
+  }
+
+  // Silence helpers
+  const isSilenced = (silencedUntil: string | null | undefined): boolean => {
+    if (!silencedUntil) return false
+    try {
+      return new Date(silencedUntil) > new Date()
+    } catch {
+      return false
+    }
+  }
+
+  const formatSilencedUntil = (silencedUntil: string | null | undefined): string => {
+    if (!silencedUntil) return ''
+    try {
+      const dt = new Date(silencedUntil)
+      return dt.toLocaleString()
+    } catch {
+      return silencedUntil
+    }
+  }
+
+  const openSilenceModal = (type: 'rule' | 'folder', id: string, name: string) => {
+    setSilenceTarget({ type, id, name })
+    setSilenceDuration(60)
+    setSilenceModalOpen(true)
+  }
+
+  const closeSilenceModal = () => {
+    setSilenceModalOpen(false)
+    setSilenceTarget(null)
+    setSilenceDuration(60)
+  }
+
+  const handleSilence = async () => {
+    if (!silenceTarget) return
+    setSilenceLoading(true)
+    try {
+      const path = silenceTarget.type === 'rule'
+        ? `/rules/${silenceTarget.id}/silence`
+        : `/rules/folders/${encodeURIComponent(silenceTarget.id)}/silence`
+      await api.post(path, { duration_minutes: silenceDuration })
+      await loadRules()
+      await loadFolders()
+      closeSilenceModal()
+    } catch (err: any) {
+      setError(err?.message || 'Failed to silence')
+    } finally {
+      setSilenceLoading(false)
+    }
+  }
+
+  const handleUnsilence = async (type: 'rule' | 'folder', id: string) => {
+    try {
+      const path = type === 'rule'
+        ? `/rules/${id}/unsilence`
+        : `/rules/folders/${encodeURIComponent(id)}/unsilence`
+      await api.post(path, {})
+      await loadRules()
+      await loadFolders()
+    } catch (err: any) {
+      setError(err?.message || 'Failed to unsilence')
+    }
   }
 
   if (loading) {
@@ -514,8 +593,8 @@ export default function AlertRules() {
           >
             <option value="__all__">All Folders</option>
             {folders.map(folder => (
-              <option key={folder} value={folder}>
-                {folder}
+              <option key={folder.name} value={folder.name}>
+                {folder.name}
               </option>
             ))}
           </select>
@@ -633,25 +712,62 @@ export default function AlertRules() {
                       >
                         {rule.query_type ? rule.query_type.toUpperCase() : 'N/A'}
                       </span>
+
+                      {isSilenced(rule.silenced_until) && (
+                        <span
+                          className="badge"
+                          style={{
+                            background: 'rgba(245, 158, 11, 0.15)',
+                            color: '#f59e0b',
+                            flexShrink: 0,
+                            fontSize: '11px',
+                          }}
+                          title={`Silenced until ${formatSilencedUntil(rule.silenced_until)}`}
+                        >
+                          <BellOff size={10} style={{ marginRight: '4px', display: 'inline', verticalAlign: 'middle' }} />
+                          Silenced
+                        </span>
+                      )}
                     </div>
 
-                    <button
-                      onClick={() => openEditModal(rule)}
-                      className="btn btn-secondary"
-                      style={{ padding: '6px', marginLeft: '12px', flexShrink: 0 }}
-                      title="Edit rule"
-                    >
-                      <Edit2 size={16} />
-                    </button>
+                    <div style={{ display: 'flex', gap: '4px', marginLeft: '8px', flexShrink: 0 }}>
+                      {isSilenced(rule.silenced_until) ? (
+                        <button
+                          onClick={() => handleUnsilence('rule', rule.id)}
+                          className="btn btn-secondary"
+                          style={{ padding: '6px', color: '#f59e0b' }}
+                          title="Unsilence rule"
+                        >
+                          <BellRing size={16} />
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => openSilenceModal('rule', rule.id, rule.name)}
+                          className="btn btn-secondary"
+                          style={{ padding: '6px' }}
+                          title="Silence rule"
+                        >
+                          <BellOff size={16} />
+                        </button>
+                      )}
+                      <button
+                        onClick={() => openEditModal(rule)}
+                        className="btn btn-secondary"
+                        style={{ padding: '6px' }}
+                        title="Edit rule"
+                      >
+                        <Edit2 size={16} />
+                      </button>
 
-                    <button
-                      onClick={() => openDeleteConfirm(rule.id)}
-                      className="btn btn-secondary"
-                      style={{ padding: '6px', color: '#ef4444', marginLeft: '8px', flexShrink: 0 }}
-                      title="Delete rule"
-                    >
-                      <Trash2 size={16} />
-                    </button>
+                      <button
+                        onClick={() => openDeleteConfirm(rule.id)}
+                        className="btn btn-secondary"
+                        style={{ padding: '6px', color: '#ef4444' }}
+                        title="Delete rule"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
                   </div>
 
                   {rule.description && (
@@ -664,6 +780,26 @@ export default function AlertRules() {
                     >
                       {rule.description}
                     </p>
+                  )}
+
+                  {isSilenced(rule.silenced_until) && (
+                    <div
+                      style={{
+                        background: 'rgba(245, 158, 11, 0.08)',
+                        border: '1px solid rgba(245, 158, 11, 0.2)',
+                        borderRadius: 'var(--radius-sm)',
+                        padding: '8px 12px',
+                        marginBottom: '12px',
+                        fontSize: '13px',
+                        color: '#f59e0b',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                      }}
+                    >
+                      <BellOff size={14} />
+                      Silenced until {formatSilencedUntil(rule.silenced_until)}
+                    </div>
                   )}
 
                   <div className="alert-meta">
@@ -713,7 +849,9 @@ export default function AlertRules() {
           )}
 
           {folderKeys.map(folderKey => {
+            const folderInfo = folders.find(f => f.name === folderKey)
             const isEmpty = groupedRules[folderKey].length === 0
+            const folderSilenced = folderInfo ? isSilenced(folderInfo.silenced_until) : false
             return (
             <div key={folderKey} style={{ marginBottom: '16px', opacity: isEmpty ? 0.5 : 1 }}>
               <div
@@ -723,7 +861,8 @@ export default function AlertRules() {
                   alignItems: 'center',
                   gap: '8px',
                   padding: '10px 12px',
-                  background: 'var(--bg-tertiary)',
+                  background: folderSilenced ? 'rgba(245, 158, 11, 0.08)' : 'var(--bg-tertiary)',
+                  border: folderSilenced ? '1px solid rgba(245, 158, 11, 0.2)' : '1px solid transparent',
                   borderRadius: 'var(--radius-sm)',
                   cursor: isEmpty ? 'default' : 'pointer',
                   marginBottom: '8px',
@@ -738,7 +877,7 @@ export default function AlertRules() {
                   <ChevronRight size={16} color="var(--text-muted)" />
                 )}
 
-                <Folder size={16} color={isEmpty ? 'var(--text-muted)' : 'var(--accent-primary)'} />
+                <Folder size={16} color={isEmpty ? 'var(--text-muted)' : folderSilenced ? '#f59e0b' : 'var(--accent-primary)'} />
 
                 {editingFolderName === folderKey ? (
                   <input
@@ -768,7 +907,22 @@ export default function AlertRules() {
                     }}
                   />
                 ) : (
-                  <span style={{ fontWeight: 600, fontSize: '14px', flex: 1 }}>{folderKey}</span>
+                  <span style={{ fontWeight: 600, fontSize: '14px', flex: 1, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {folderKey}
+                    {folderSilenced && (
+                      <span
+                        className="badge"
+                        style={{
+                          background: 'rgba(245, 158, 11, 0.15)',
+                          color: '#f59e0b',
+                          fontSize: '11px',
+                        }}
+                      >
+                        <BellOff size={10} style={{ marginRight: '4px', display: 'inline', verticalAlign: 'middle' }} />
+                        Silenced
+                      </span>
+                    )}
+                  </span>
                 )}
 
                 <span
@@ -785,6 +939,31 @@ export default function AlertRules() {
 
                 {editingFolderName !== folderKey && (
                   <div style={{ display: 'flex', gap: '4px', marginLeft: '4px' }}>
+                    {folderSilenced ? (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleUnsilence('folder', folderKey)
+                        }}
+                        className="btn btn-secondary"
+                        style={{ padding: '4px', color: '#f59e0b', opacity: 0.7 }}
+                        title="Unsilence folder"
+                      >
+                        <BellRing size={14} />
+                      </button>
+                    ) : (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          openSilenceModal('folder', folderKey, folderKey)
+                        }}
+                        className="btn btn-secondary"
+                        style={{ padding: '4px', opacity: 0.6 }}
+                        title="Silence folder"
+                      >
+                        <BellOff size={14} />
+                      </button>
+                    )}
                     <button
                       onClick={(e) => {
                         e.stopPropagation()
@@ -859,25 +1038,62 @@ export default function AlertRules() {
                           >
                             {rule.query_type ? rule.query_type.toUpperCase() : 'N/A'}
                           </span>
+
+                          {isSilenced(rule.silenced_until) && (
+                            <span
+                              className="badge"
+                              style={{
+                                background: 'rgba(245, 158, 11, 0.15)',
+                                color: '#f59e0b',
+                                flexShrink: 0,
+                                fontSize: '11px',
+                              }}
+                              title={`Silenced until ${formatSilencedUntil(rule.silenced_until)}`}
+                            >
+                              <BellOff size={10} style={{ marginRight: '4px', display: 'inline', verticalAlign: 'middle' }} />
+                              Silenced
+                            </span>
+                          )}
                         </div>
 
-                        <button
-                          onClick={() => openEditModal(rule)}
-                          className="btn btn-secondary"
-                          style={{ padding: '6px', marginLeft: '12px', flexShrink: 0 }}
-                          title="Edit rule"
-                        >
-                          <Edit2 size={16} />
-                        </button>
+                        <div style={{ display: 'flex', gap: '4px', marginLeft: '8px', flexShrink: 0 }}>
+                          {isSilenced(rule.silenced_until) ? (
+                            <button
+                              onClick={() => handleUnsilence('rule', rule.id)}
+                              className="btn btn-secondary"
+                              style={{ padding: '6px', color: '#f59e0b' }}
+                              title="Unsilence rule"
+                            >
+                              <BellRing size={16} />
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => openSilenceModal('rule', rule.id, rule.name)}
+                              className="btn btn-secondary"
+                              style={{ padding: '6px' }}
+                              title="Silence rule"
+                            >
+                              <BellOff size={16} />
+                            </button>
+                          )}
+                          <button
+                            onClick={() => openEditModal(rule)}
+                            className="btn btn-secondary"
+                            style={{ padding: '6px' }}
+                            title="Edit rule"
+                          >
+                            <Edit2 size={16} />
+                          </button>
 
-                        <button
-                          onClick={() => openDeleteConfirm(rule.id)}
-                          className="btn btn-secondary"
-                          style={{ padding: '6px', color: '#ef4444', marginLeft: '8px', flexShrink: 0 }}
-                          title="Delete rule"
-                        >
-                          <Trash2 size={16} />
-                        </button>
+                          <button
+                            onClick={() => openDeleteConfirm(rule.id)}
+                            className="btn btn-secondary"
+                            style={{ padding: '6px', color: '#ef4444' }}
+                            title="Delete rule"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
                       </div>
 
                       {rule.description && (
@@ -890,6 +1106,26 @@ export default function AlertRules() {
                         >
                           {rule.description}
                         </p>
+                      )}
+
+                      {isSilenced(rule.silenced_until) && (
+                        <div
+                          style={{
+                            background: 'rgba(245, 158, 11, 0.08)',
+                            border: '1px solid rgba(245, 158, 11, 0.2)',
+                            borderRadius: 'var(--radius-sm)',
+                            padding: '8px 12px',
+                            marginBottom: '12px',
+                            fontSize: '13px',
+                            color: '#f59e0b',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                          }}
+                        >
+                          <BellOff size={14} />
+                          Silenced until {formatSilencedUntil(rule.silenced_until)}
+                        </div>
                       )}
 
                       <div className="alert-meta">
@@ -1130,6 +1366,89 @@ export default function AlertRules() {
         </div>
       )}
 
+      {/* Silence Modal */}
+      {silenceModalOpen && silenceTarget && (
+        <div className="modal-overlay" onClick={closeSilenceModal}>
+          <div
+            className="modal"
+            onClick={(e: React.MouseEvent) => e.stopPropagation()}
+            style={{ maxWidth: '420px', width: '90%' }}
+          >
+            <div className="modal-header">
+              <h3 className="modal-title">
+                <BellOff size={20} style={{ verticalAlign: 'middle', marginRight: '8px' }} />
+                Silence {silenceTarget.type === 'folder' ? 'Folder' : 'Rule'}
+              </h3>
+              <button onClick={closeSilenceModal} className="btn btn-secondary" style={{ padding: '6px' }}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
+                Silence <strong>{silenceTarget.name}</strong>. Silenced alerts will not create notifications but will remain visible in the UI.
+              </p>
+
+              <div className="form-group">
+                <label className="form-label">Duration</label>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {SILENCE_DURATION_OPTIONS.map(option => (
+                    <label
+                      key={option.value}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '10px',
+                        padding: '10px 12px',
+                        borderRadius: 'var(--radius-sm)',
+                        border: silenceDuration === option.value ? '1px solid var(--accent-primary)' : '1px solid var(--border)',
+                        background: silenceDuration === option.value ? 'rgba(99, 102, 241, 0.08)' : 'var(--surface)',
+                        cursor: 'pointer',
+                        fontSize: '14px',
+                      }}
+                    >
+                      <input
+                        type="radio"
+                        name="silenceDuration"
+                        value={option.value}
+                        checked={silenceDuration === option.value}
+                        onChange={() => setSilenceDuration(option.value)}
+                        style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                      />
+                      {option.label}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="modal-footer">
+              <button onClick={closeSilenceModal} className="btn btn-secondary" disabled={silenceLoading}>
+                Cancel
+              </button>
+              <button
+                onClick={handleSilence}
+                className="btn btn-primary"
+                disabled={silenceLoading}
+                style={{ backgroundColor: '#f59e0b', borderColor: '#f59e0b' }}
+              >
+                {silenceLoading ? (
+                  <>
+                    <Loader size={16} className="spinner" />
+                    Silencing...
+                  </>
+                ) : (
+                  <>
+                    <BellOff size={16} />
+                    Silence
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {editModalOpen && editingRule && (
         <div className="modal-overlay" onClick={closeEditModal}>
           <div
@@ -1344,12 +1663,12 @@ export default function AlertRules() {
 
                     <div>
                       {folders
-                        .filter(folder => folder.toLowerCase().includes(folderSearch.toLowerCase()))
+                        .filter(folder => folder.name.toLowerCase().includes(folderSearch.toLowerCase()))
                         .map(folder => (
                           <div
-                            key={folder}
+                            key={folder.name}
                             onClick={() => {
-                              setEditFolder(folder)
+                              setEditFolder(folder.name)
                               setFolderDropdownOpen(false)
                               setFolderSearch('')
                             }}
@@ -1359,19 +1678,19 @@ export default function AlertRules() {
                               display: 'flex',
                               alignItems: 'center',
                               gap: '8px',
-                              background: editFolder === folder ? 'rgba(99, 102, 241, 0.1)' : 'transparent',
+                              background: editFolder === folder.name ? 'rgba(99, 102, 241, 0.1)' : 'transparent',
                             }}
                           >
                             <Folder size={14} color="var(--text-muted)" />
-                            <span style={{ fontSize: '13px' }}>{folder}</span>
+                            <span style={{ fontSize: '13px' }}>{folder.name}</span>
 
-                            {editFolder === folder && (
+                            {editFolder === folder.name && (
                               <Check size={14} color="var(--accent-primary)" style={{ marginLeft: 'auto' }} />
                             )}
                           </div>
                         ))}
 
-                      {folders.filter(folder => folder.toLowerCase().includes(folderSearch.toLowerCase())).length === 0 &&
+                      {folders.filter(folder => folder.name.toLowerCase().includes(folderSearch.toLowerCase())).length === 0 &&
                         folderSearch.trim() && (
                           <div style={{ padding: '8px 12px', color: 'var(--text-muted)', fontSize: '13px' }}>
                             No matching folders
@@ -1379,7 +1698,7 @@ export default function AlertRules() {
                         )}
                     </div>
 
-                    {folderSearch.trim() && !folders.includes(folderSearch.trim()) && (
+                    {folderSearch.trim() && !folders.some(f => f.name === folderSearch.trim()) && (
                       <div
                         style={{
                           padding: '8px 12px',
@@ -1408,7 +1727,7 @@ export default function AlertRules() {
                           }}
                         >
                           <FolderPlus size={14} />
-                          Create &quot;{folderSearch.trim()}&quot;
+                          Create "{folderSearch.trim()}"
                         </button>
                       </div>
                     )}

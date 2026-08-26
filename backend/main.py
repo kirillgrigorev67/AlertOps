@@ -359,8 +359,105 @@ async def _alertmanager_sync_loop():
         await _sync_with_alertmanager()
 
 
-async def _sync_active_alerts_from_alertmanager():
-    """On startup: fetch active alerts from Alertmanager and create missing ones."""
+async def _auto_unsilence_loop():
+    """Background loop: periodically check and auto-clear expired silences."""
+    while True:
+        await asyncio.sleep(300)  # Check every 5 minutes
+        try:
+            now = datetime.now(timezone.utc)
+            cleared_rules = 0
+            cleared_folders = 0
+            unsilenced_names = []
+            
+            # Check rules
+            rules = storage.list("rules")
+            for rule in rules:
+                silenced_until = rule.get("silenced_until")
+                if silenced_until:
+                    try:
+                        dt = datetime.fromisoformat(silenced_until.replace("Z", "+00:00"))
+                        if now >= dt:
+                            rule["silenced_until"] = None
+                            rule["updated_at"] = utc_now_iso()
+                            storage.save("rules", rule["id"], rule)
+                            cleared_rules += 1
+                            unsilenced_names.append(rule.get("name"))
+                    except (ValueError, TypeError):
+                        pass
+            
+            # Check folders
+            folders = folder_manager.list_folders()
+            for folder in folders:
+                silenced_until = folder.get("silenced_until")
+                if silenced_until:
+                    try:
+                        dt = datetime.fromisoformat(silenced_until.replace("Z", "+00:00"))
+                        if now >= dt:
+                            folder_manager.set_folder_silenced(folder["name"], None)
+                            cleared_folders += 1
+                            # Also collect alertnames from rules in this folder
+                            for rule in rules:
+                                if rule.get("folder") == folder["name"]:
+                                    unsilenced_names.append(rule.get("name"))
+                    except (ValueError, TypeError):
+                        pass
+            
+            # Sync active alerts for auto-unsilenced rules
+            for alertname in unsilenced_names:
+                await _sync_active_alerts_from_alertmanager(alertname_filter=alertname)
+            
+            if cleared_rules > 0 or cleared_folders > 0:
+                print(f"Auto-unsilence: cleared {cleared_rules} rules, {cleared_folders} folders, synced {len(unsilenced_names)} alertnames")
+        except Exception as e:
+            print(f"Auto-unsilence loop error: {e}")
+
+
+async def _is_rule_silenced(rule_name: str) -> bool:
+    """Check if a rule or its folder is currently silenced.
+    
+    Priority: rule-level silence overrides folder-level.
+    - If rule has silenced_until set (not None, not missing) → check if expired
+    - If rule has silenced_until = null (explicitly unsilenced) → NOT silenced, ignore folder
+    - If rule has no silenced_until key → inherit from folder
+    """
+    rules = storage.list("rules")
+    for rule in rules:
+        if rule.get("name") == rule_name:
+            # Check if rule has explicit silence setting
+            if "silenced_until" in rule:
+                silenced_until = rule["silenced_until"]
+                if silenced_until is None:
+                    # null could mean "never set" or "explicitly unsilenced"
+                    # Only ignore folder if user explicitly unsilenced
+                    if rule.get("user_unsilenced") is True:
+                        return False
+                    # Otherwise (never silenced), fall through to folder check
+                else:
+                    # Has explicit silence timestamp — check if expired
+                    try:
+                        dt = datetime.fromisoformat(silenced_until.replace("Z", "+00:00"))
+                        if datetime.now(timezone.utc) < dt:
+                            return True
+                        # Expired — fall through to folder check
+                    except (ValueError, TypeError):
+                        pass
+            
+            # No explicit rule-level silence (or expired) — check folder
+            folder_name = rule.get("folder")
+            if folder_name:
+                return folder_manager.is_folder_silenced(folder_name)
+            
+            return False
+    
+    return False
+
+
+async def _sync_active_alerts_from_alertmanager(alertname_filter: Optional[str] = None):
+    """On startup or after unsilence: fetch active alerts from Alertmanager and create missing ones.
+    
+    Args:
+        alertname_filter: If provided, only sync alerts with this alertname (for unsilence of specific rule)
+    """
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.get(
@@ -386,6 +483,14 @@ async def _sync_active_alerts_from_alertmanager():
                 alertname = am_alert.get("labels", {}).get("alertname", "Unknown")
                 
                 if not fingerprint:
+                    continue
+                
+                # Filter by alertname if specified
+                if alertname_filter and alertname != alertname_filter:
+                    continue
+                
+                # Skip silenced rules
+                if await _is_rule_silenced(alertname):
                     continue
                 
                 # Check if we already have this alert
@@ -443,6 +548,8 @@ async def _sync_active_alerts_from_alertmanager():
             
             if created > 0:
                 print(f"Alertmanager sync: created {created} missing active alerts")
+            elif alertname_filter:
+                print(f"Alertmanager sync: no active alerts found for {alertname_filter}")
     except Exception as e:
         print(f"Error syncing active alerts from Alertmanager: {e}")
 
@@ -493,6 +600,10 @@ async def lifespan(app: FastAPI):
     # Start background sync loop with Alertmanager
     asyncio.create_task(_alertmanager_sync_loop())
     print("Started Alertmanager sync loop (every 60s)")
+    
+    # Start auto-unsilence background loop
+    asyncio.create_task(_auto_unsilence_loop())
+    print("Started auto-unsilence loop (every 5min)")
     
     yield
     
@@ -690,6 +801,153 @@ async def delete_folder(folder_name: str):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@api_router.post("/rules/folders/{folder_name}/silence")
+async def silence_folder(folder_name: str, duration_minutes: int = 60):
+    """Silence all alerts in a folder. Duration in minutes, or -1 for indefinite."""
+    
+    if duration_minutes == -1:
+        # Indefinite silence
+        silenced_until = None
+    else:
+        silenced_until = (datetime.now(timezone.utc) + __import__('datetime').timedelta(minutes=duration_minutes)).isoformat().replace("+00:00", "Z")
+    
+    folder = folder_manager.set_folder_silenced(folder_name, silenced_until)
+    
+    # Silence ALL rules in this folder (folder silence overrides individual unsilence)
+    rules = storage.list("rules")
+    silenced_rules = 0
+    silenced_alertnames = []
+    for rule in rules:
+        if rule.get("folder") == folder_name:
+            rule["silenced_until"] = silenced_until
+            rule["updated_at"] = utc_now_iso()
+            # Remove user_unsilenced flag since folder is now silencing it
+            if "user_unsilenced" in rule:
+                del rule["user_unsilenced"]
+            storage.save("rules", rule["id"], rule)
+            silenced_rules += 1
+            silenced_alertnames.append(rule.get("name"))
+    
+    # Move active alerts for silenced rules to history
+    moved_count = 0
+    active_alerts = storage.list("alerts/active")
+    for alert in active_alerts:
+        if alert.get("alertname") in silenced_alertnames:
+            now = utc_now_iso()
+            alert["status"] = "resolved"
+            alert["ends_at"] = now
+            alert["updated_at"] = now
+            alert["resolution_reason"] = "silenced"
+            alert["silenced_by"] = f"folder:{folder_name}"
+            alert["silenced_at"] = now
+            storage.save("alerts/history", alert["id"], alert)
+            storage.delete("alerts/active", alert["id"])
+            webhook_queue.dequeue(alert["id"])
+            moved_count += 1
+    
+    return {
+        "status": "silenced",
+        "folder": folder_name,
+        "silenced_until": silenced_until,
+        "rules_affected": silenced_rules,
+        "alerts_moved_to_history": moved_count,
+    }
+
+
+@api_router.post("/rules/folders/{folder_name}/unsilence")
+async def unsilence_folder(folder_name: str):
+    """Unsilence a folder and all alerts within it."""
+    folder = folder_manager.set_folder_silenced(folder_name, None)
+    
+    # Also unsilence all rules in this folder
+    rules = storage.list("rules")
+    unsilenced_rules = 0
+    unsilenced_names = []
+    for rule in rules:
+        if rule.get("folder") == folder_name:
+            rule["silenced_until"] = None
+            rule["updated_at"] = utc_now_iso()
+            storage.save("rules", rule["id"], rule)
+            unsilenced_rules += 1
+            unsilenced_names.append(rule.get("name"))
+    
+    # Sync active alerts from Alertmanager for unsilenced rules
+    for alertname in unsilenced_names:
+        await _sync_active_alerts_from_alertmanager(alertname_filter=alertname)
+    
+    return {
+        "status": "unsilenced",
+        "folder": folder_name,
+        "rules_affected": unsilenced_rules,
+    }
+
+
+@api_router.post("/rules/{rule_id}/silence")
+async def silence_rule(rule_id: str, duration_minutes: int = 60):
+    """Silence a single alert rule. Duration in minutes, or -1 for indefinite."""
+    rule = storage.get("rules", rule_id)
+    if not rule:
+        raise HTTPException(status_code=404, detail="Rule not found")
+    
+    if duration_minutes == -1:
+        silenced_until = None
+    else:
+        silenced_until = (datetime.now(timezone.utc) + __import__('datetime').timedelta(minutes=duration_minutes)).isoformat().replace("+00:00", "Z")
+    
+    rule_name = rule.get("name")
+    rule["silenced_until"] = silenced_until
+    rule["updated_at"] = utc_now_iso()
+    storage.save("rules", rule_id, rule)
+    
+    # Move active alerts for this rule to history
+    moved_count = 0
+    active_alerts = storage.list("alerts/active")
+    for alert in active_alerts:
+        if alert.get("alertname") == rule_name:
+            now = utc_now_iso()
+            alert["status"] = "resolved"
+            alert["ends_at"] = now
+            alert["updated_at"] = now
+            alert["resolution_reason"] = "silenced"
+            alert["silenced_by"] = f"rule:{rule_name}"
+            alert["silenced_at"] = now
+            storage.save("alerts/history", alert["id"], alert)
+            storage.delete("alerts/active", alert["id"])
+            webhook_queue.dequeue(alert["id"])
+            moved_count += 1
+    
+    return {
+        "status": "silenced",
+        "rule_id": rule_id,
+        "rule_name": rule_name,
+        "silenced_until": silenced_until,
+        "alerts_moved_to_history": moved_count,
+    }
+
+
+@api_router.post("/rules/{rule_id}/unsilence")
+async def unsilence_rule(rule_id: str):
+    """Unsilence a single alert rule."""
+    rule = storage.get("rules", rule_id)
+    if not rule:
+        raise HTTPException(status_code=404, detail="Rule not found")
+    
+    rule_name = rule.get("name")
+    rule["silenced_until"] = None
+    rule["user_unsilenced"] = True  # Mark as explicitly unsilenced by user
+    rule["updated_at"] = utc_now_iso()
+    storage.save("rules", rule_id, rule)
+    
+    # Sync active alerts from Alertmanager for this rule
+    await _sync_active_alerts_from_alertmanager(alertname_filter=rule_name)
+    
+    return {
+        "status": "unsilenced",
+        "rule_id": rule_id,
+        "rule_name": rule_name,
+    }
+
+
 @api_router.post("/rules", response_model=AlertRule)
 async def create_rule(rule: AlertRule):
     now = utc_now_iso()
@@ -870,6 +1128,47 @@ async def receive_alert_webhook(
         status = alert_data.get("status", "firing")
         fingerprint = alert_data.get("fingerprint", "")
         alertname = alert_data.get("labels", {}).get("alertname", "Unknown")
+        
+        # Check if rule is silenced (either directly or via folder)
+        is_silenced = False
+        matching_rule = None
+        rules = storage.list("rules")
+        for rule in rules:
+            if rule.get("name") == alertname:
+                matching_rule = rule
+                break
+        
+        if matching_rule:
+            # Check rule-level silence first (has priority over folder)
+            if "silenced_until" in matching_rule:
+                silence_until = matching_rule["silenced_until"]
+                if silence_until is None:
+                    # null could mean "never set" or "explicitly unsilenced"
+                    # Only ignore folder if user explicitly unsilenced
+                    if matching_rule.get("user_unsilenced") is True:
+                        is_silenced = False
+                    else:
+                        # Never silenced, check folder
+                        folder_name = matching_rule.get("folder")
+                        if folder_name:
+                            is_silenced = folder_manager.is_folder_silenced(folder_name)
+                else:
+                    try:
+                        dt = datetime.fromisoformat(silence_until.replace("Z", "+00:00"))
+                        if datetime.now(timezone.utc) < dt:
+                            is_silenced = True
+                    except (ValueError, TypeError):
+                        pass
+            else:
+                # No explicit rule-level silence — check folder
+                folder_name = matching_rule.get("folder")
+                if folder_name:
+                    is_silenced = folder_manager.is_folder_silenced(folder_name)
+        
+        if is_silenced:
+            # Silenced alert: skip creation/diagnosis but log it
+            print(f"Alert '{alertname}' is silenced, skipping webhook processing")
+            continue
         
         if status == "firing":
             # Check for existing active alert with same fingerprint

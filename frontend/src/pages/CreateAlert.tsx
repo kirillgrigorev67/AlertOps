@@ -29,6 +29,11 @@ interface LocationState {
   }
 }
 
+interface FolderInfo {
+  name: string
+  silenced_until?: string | null
+}
+
 export default function CreateAlert() {
   const location = useLocation()
   const navigate = useNavigate()
@@ -46,7 +51,7 @@ export default function CreateAlert() {
   const [severity, setSeverity] = useState('warning')
   const [resolveTimeout, setResolveTimeout] = useState('5m')
   const [folder, setFolder] = useState('')
-  const [existingFolders, setExistingFolders] = useState<string[]>([])
+  const [existingFolders, setExistingFolders] = useState<FolderInfo[]>([])
   const [variants, setVariants] = useState<AlertVariant[]>([])
   const [generating, setGenerating] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -81,7 +86,7 @@ export default function CreateAlert() {
 
   const loadFolders = async () => {
     try {
-      const data = await api.get<string[]>('/rules/folders')
+      const data = await api.get<FolderInfo[]>('/rules/folders')
       setExistingFolders(data)
     } catch (err) {
       console.error('Failed to load folders:', err)
@@ -164,7 +169,7 @@ export default function CreateAlert() {
     }
   }
 
-  const folderIsNew = folder.trim() && !existingFolders.includes(folder.trim())
+  const folderIsNew = folder.trim() && !existingFolders.some(f => f.name === folder.trim())
   
   // Folder dropdown state
   const [folderDropdownOpen, setFolderDropdownOpen] = useState(false)
@@ -173,7 +178,7 @@ export default function CreateAlert() {
   
   // Filter folders by search
   const filteredFolders = folderSearch.trim() 
-    ? existingFolders.filter(f => f.toLowerCase().includes(folderSearch.toLowerCase()))
+    ? existingFolders.filter(f => f.name.toLowerCase().includes(folderSearch.toLowerCase()))
     : existingFolders
   
   // Close dropdown on click outside
@@ -377,10 +382,10 @@ export default function CreateAlert() {
                   {filteredFolders.length > 0 ? (
                     filteredFolders.map(f => (
                       <button
-                        key={f}
+                        key={f.name}
                         type="button"
                         onClick={() => {
-                          setFolder(f)
+                          setFolder(f.name)
                           setFolderDropdownOpen(false)
                           setFolderSearch('')
                         }}
@@ -389,8 +394,8 @@ export default function CreateAlert() {
                           padding: '8px 12px',
                           border: 'none',
                           borderBottom: '1px solid var(--border)',
-                          background: folder === f ? 'rgba(99, 102, 241, 0.1)' : 'transparent',
-                          color: folder === f ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                          background: folder === f.name ? 'rgba(99, 102, 241, 0.1)' : 'transparent',
+                          color: folder === f.name ? 'var(--accent-primary)' : 'var(--text-secondary)',
                           fontSize: '13px',
                           cursor: 'pointer',
                           textAlign: 'left',
@@ -400,8 +405,8 @@ export default function CreateAlert() {
                         }}
                       >
                         <Folder size={14} />
-                        {f}
-                        {folder === f && <Check size={14} style={{ marginLeft: 'auto' }} />}
+                        {f.name}
+                        {folder === f.name && <Check size={14} style={{ marginLeft: 'auto' }} />}
                       </button>
                     ))
                   ) : folderSearch.trim() ? (
@@ -426,7 +431,7 @@ export default function CreateAlert() {
                 </div>
                 
                 {/* Create new folder hint */}
-                {folderSearch.trim() && !existingFolders.includes(folderSearch.trim()) && (
+                {folderSearch.trim() && !existingFolders.some(f => f.name === folderSearch.trim()) && (
                   <div style={{ 
                     padding: '8px 12px', 
                     borderTop: '1px solid var(--border)',

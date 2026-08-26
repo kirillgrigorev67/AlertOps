@@ -130,7 +130,6 @@ services:
       - ./data/backend:/app/data
       - ./config/prometheus/rules:/app/rules
       - ./config/loki/rules:/app/loki-rules
-      - ./backend:/app
     ports:
       - "8000:8000"
     networks:

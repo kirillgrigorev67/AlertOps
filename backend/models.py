@@ -47,6 +47,7 @@ class AlertRule(BaseModel):
     panel_uid: Optional[str] = None
     dashboard_uid: Optional[str] = None
     resolve_timeout: int = 5  # minutes to wait before closing after metric recovery
+    silenced_until: Optional[str] = None  # ISO timestamp until which the alert is silenced; null = not silenced
 
 
 class Alert(BaseModel):
@@ -71,6 +72,9 @@ class Alert(BaseModel):
     resolve_timeout: int = 5  # minutes (inherited from rule)
     resolve_at: Optional[str] = None  # when resolving will complete
     folder: Optional[str] = None  # inherited from rule at alert creation time
+    resolution_reason: Optional[str] = None  # why alert was resolved: silenced, rule_deleted, manual_force_resolve, zombie_cleanup
+    silenced_by: Optional[str] = None  # "folder:name" or "rule:name" if resolved by silence
+    silenced_at: Optional[str] = None  # ISO timestamp when silence was applied
 
 
 class LLMProvider(BaseModel):

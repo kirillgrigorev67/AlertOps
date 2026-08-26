@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { History, Search, AlertCircle, Trash2, Folder } from 'lucide-react'
+import { History, Search, AlertCircle, Trash2, Folder, VolumeX } from 'lucide-react'
 import api from '../api/client'
 import ConfirmModal from '../components/ConfirmModal'
 
@@ -14,6 +14,14 @@ interface Alert {
   ends_at: string | null
   diagnosis: string | null
   folder?: string | null
+  resolution_reason?: string | null
+  silenced_by?: string | null
+  silenced_at?: string | null
+}
+
+interface FolderInfo {
+  name: string
+  silenced_until?: string | null
 }
 
 export default function AlertHistory() {
@@ -25,7 +33,7 @@ export default function AlertHistory() {
   const [confirmOpen, setConfirmOpen] = useState(false)
 
   // Folder filter
-  const [folders, setFolders] = useState<string[]>([])
+  const [folders, setFolders] = useState<FolderInfo[]>([])
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null)
 
   useEffect(() => {
@@ -47,7 +55,7 @@ export default function AlertHistory() {
 
   const loadFolders = async () => {
     try {
-      const data = await api.get<string[]>('/rules/folders')
+      const data = await api.get<FolderInfo[]>('/rules/folders')
       setFolders(data)
     } catch (err) {
       console.error('Failed to load folders:', err)
@@ -144,7 +152,7 @@ export default function AlertHistory() {
           >
             <option value="__all__">All Folders</option>
             {folders.map(f => (
-              <option key={f} value={f}>{f}</option>
+              <option key={f.name} value={f.name}>{f.name}</option>
             ))}
           </select>
         </div>
@@ -234,6 +242,31 @@ export default function AlertHistory() {
             </div>
           </div>
 
+          {/* Silence info */}
+          {selectedAlert.silenced_by && (
+            <div style={{ 
+              backgroundColor: 'rgba(245, 158, 11, 0.08)',
+              padding: '12px',
+              borderRadius: 'var(--radius-sm)',
+              borderLeft: '3px solid #f59e0b',
+              marginBottom: '12px'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                <VolumeX size={14} color="#f59e0b" />
+                <span style={{ fontSize: '12px', fontWeight: 600, color: '#f59e0b' }}>
+                  Silenced
+                </span>
+              </div>
+              <p style={{ fontSize: '13px', lineHeight: '1.5', color: 'var(--text-secondary)' }}>
+                This alert was silenced via {selectedAlert.silenced_by.startsWith('folder:') ? 'folder' : 'rule'} 
+                {' '}<strong>{selectedAlert.silenced_by.split(':')[1]}</strong>
+                {selectedAlert.silenced_at && (
+                  <span> at {new Date(selectedAlert.silenced_at).toLocaleString()}</span>
+                )}
+              </p>
+            </div>
+          )}
+
           {selectedAlert.diagnosis && (
             <div style={{ 
               backgroundColor: 'var(--bg-tertiary)',
@@ -277,6 +310,12 @@ export default function AlertHistory() {
                         <span className="badge" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-muted)', fontSize: '11px' }}>
                           <Folder size={10} style={{ verticalAlign: 'middle', marginRight: '2px' }} />
                           {alert.folder}
+                        </span>
+                      )}
+                      {alert.silenced_by && (
+                        <span className="badge" style={{ background: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b', fontSize: '11px' }}>
+                          <VolumeX size={10} style={{ verticalAlign: 'middle', marginRight: '2px' }} />
+                          Silenced
                         </span>
                       )}
                     </div>
