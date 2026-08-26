@@ -334,6 +334,8 @@ The backend exposes a REST API at `http://localhost:8000/api/`. All endpoints re
 | `POST` | `/api/rules/folders` | Create a new folder (`{"name": "My Folder"}`) |
 | `POST` | `/api/rules/folders/rename` | Rename a folder (`{"old_name": "X", "new_name": "Y"}`) |
 | `DELETE` | `/api/rules/folders/{folder_name}` | Delete a folder (rules become uncategorized) |
+| `POST` | `/api/rules/folders/{folder_name}/silence?duration_minutes=60` | Silence all rules in a folder for N minutes. Active alerts are moved to history with `silenced_by` marker |
+| `POST` | `/api/rules/folders/{folder_name}/unsilence` | Remove silence from a folder. Rules resume normal operation |
 
 ### AI Alert Generation
 
@@ -378,6 +380,16 @@ The backend exposes a REST API at `http://localhost:8000/api/`. All endpoints re
 | `DELETE` | `/api/providers/{id}` | Delete a provider |
 | `POST` | `/api/providers/{id}/default` | Set as default provider |
 | `POST` | `/api/providers/{id}/test` | Test provider connectivity |
+
+### Cleanup
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/cleanup/run?dry_run=true` | Run cleanup in dry-run mode |
+| `POST` | `/api/cleanup/run` | Run cleanup immediately |
+| `GET` | `/api/cleanup/config` | View current cleanup settings |
+| `GET` | `/api/cleanup/logs` | View recent cleanup logs |
+| `GET` | `/api/cleanup/archives` | List archived alert history files |
 
 ### Query & Proxy
 
