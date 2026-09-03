@@ -51,6 +51,22 @@ Manage multiple LLM providers. Supports DeepSeek, OpenAI, and any OpenAI-compati
 
 ![LLM Provider Settings](assets/screenshots/providers.png)
 
+---
+
+### Notification Channels
+Configure notification channels (Telegram, Webhook) and assign them to alert rules. Each rule can use specific channels or fall back to all enabled channels.
+
+
+![Notification Channels](assets/screenshots/notification-channels.png)
+
+---
+
+### Alert Rules
+Manage all alert rules in one place. View rule status, edit queries and conditions, assign notification channels, silence rules individually or by folder, and delete rules with automatic cleanup of associated active alerts.
+
+
+![Alert Rules](assets/screenshots/alert-rules.png)
+
 ## Architecture
 
 ```
@@ -270,7 +286,25 @@ To avoid unnecessary LLM API calls and costs, AlertOps caches diagnosis results:
 
 Expired cache entries are automatically cleaned up during the daily alert history cleanup.
 
-### 5. Alert Counter Badge
+### 5. Notification Channels
+
+AlertOps supports sending alerts to external channels:
+
+- **Telegram** — sends formatted messages with alert details and AI diagnosis
+- **Webhook** — POSTs JSON payload to any URL
+
+**Channel assignment**:
+- Each alert rule can have specific channels assigned
+- Rules without channels use all enabled channels (backward compatibility)
+- Rules with explicitly empty channels (`[]`) receive **no notifications**
+
+**Configuration**:
+1. Open **Settings → Notification Channels**
+2. Add a channel (Telegram bot token + chat ID, or webhook URL)
+3. Test the channel with a test alert
+4. Assign channels to rules in the rule list or during alert creation
+
+### 6. Alert Counter Badge
 
 The sidebar shows a **red badge** next to "Active Alerts" with the current count of all active alerts (both firing and acknowledged). The counter:
 
@@ -279,7 +313,7 @@ The sidebar shows a **red badge** next to "Active Alerts" with the current count
 - Does **not** reset when you open the Active Alerts page
 - Disappears when there are no active alerts
 
-### 6. File Storage
+### 7. File Storage
 
 All data is stored in `./data/`:
 
@@ -337,6 +371,13 @@ The backend exposes a REST API at `http://localhost:8000/api/`. All endpoints re
 | `POST` | `/api/rules/folders/{folder_name}/silence?duration_minutes=60` | Silence all rules in a folder for N minutes. Active alerts are moved to history with `silenced_by` marker |
 | `POST` | `/api/rules/folders/{folder_name}/unsilence` | Remove silence from a folder. Rules resume normal operation |
 
+### Alert Rule Silence (Individual)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/rules/{id}/silence?duration_minutes=60` | Silence a single rule for N minutes. Use `duration_minutes=-1` for indefinite silence |
+| `POST` | `/api/rules/{id}/unsilence` | Remove silence from a single rule |
+
 ### AI Alert Generation
 
 | Method | Endpoint | Description |
@@ -369,6 +410,16 @@ The backend exposes a REST API at `http://localhost:8000/api/`. All endpoints re
 |--------|----------|-------------|
 | `GET` | `/api/alerts/history?q=&start=&end=` | Resolved alerts with search and date filter |
 | `DELETE` | `/api/alerts/history` | Clear all history (active alerts preserved) |
+
+### Notification Channels
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/notification-channels` | List all notification channels |
+| `POST` | `/api/notification-channels` | Create a new channel (Telegram or Webhook) |
+| `PUT` | `/api/notification-channels/{id}` | Update a channel |
+| `DELETE` | `/api/notification-channels/{id}` | Delete a channel (also removes it from all rules) |
+| `POST` | `/api/notification-channels/{id}/test` | Send a test notification |
 
 ### LLM Providers
 
