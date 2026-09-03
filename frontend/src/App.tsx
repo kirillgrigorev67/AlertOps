@@ -6,6 +6,7 @@ import AlertRules from './pages/AlertRules'
 import AlertHistory from './pages/AlertHistory'
 import CreateAlert from './pages/CreateAlert'
 import Providers from './pages/Providers'
+import NotificationChannels from './pages/NotificationChannels'
 
 function App() {
   return (
@@ -18,6 +19,7 @@ function App() {
         <Route path="/rules" element={<AlertRules />} />
         <Route path="/history" element={<AlertHistory />} />
         <Route path="/providers" element={<Providers />} />
+        <Route path="/channels" element={<NotificationChannels />} />
       </Routes>
     </Layout>
   )

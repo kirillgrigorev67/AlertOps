@@ -132,9 +132,11 @@ export default function ActiveAlerts() {
                       </span>
                     )}
                   </div>
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
-                    {alert.summary || alert.description}
-                  </p>
+                  {(alert.summary || alert.description) && (alert.summary !== alert.alertname) && (alert.description !== alert.alertname) && (
+                    <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
+                      {alert.summary || alert.description}
+                    </p>
+                  )}
                 </div>
                 {alert.status !== 'acknowledged' && (
                   <button
@@ -154,15 +156,17 @@ export default function ActiveAlerts() {
                 fontSize: '12px',
                 color: 'var(--text-muted)'
               }}>
-                {Object.entries(alert.labels).map(([key, value]) => (
-                  <span key={key} style={{ 
-                    backgroundColor: 'var(--bg-tertiary)',
-                    padding: '2px 8px',
-                    borderRadius: 'var(--radius-sm)'
-                  }}>
-                    {key}={value}
-                  </span>
-                ))}
+                {Object.entries(alert.labels)
+                  .filter(([key]) => key !== 'alertname')
+                  .map(([key, value]) => (
+                    <span key={key} style={{ 
+                      backgroundColor: 'var(--bg-tertiary)',
+                      padding: '2px 8px',
+                      borderRadius: 'var(--radius-sm)'
+                    }}>
+                      {key}={value}
+                    </span>
+                  ))}
               </div>
 
               <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '8px' }}>

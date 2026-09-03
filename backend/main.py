@@ -20,11 +20,13 @@ from models import (
     Dashboard,
     HealthStatus,
     LLMProvider,
+    NotificationChannel,
     Panel,
     QueryRangeRequest,
     QueryRangeResponse,
 )
 from storage import storage
+from notifiers import BaseNotifier, TelegramNotifier, WebhookNotifier
 from grafana_client import grafana
 from rule_generator import rule_generator
 from query_validator import query_validator
@@ -65,6 +67,8 @@ async def _process_delayed_resolve(alert_id: str, resolve_at: str):
             storage.delete("alerts/active", alert_id)
             # Remove from persistent queue if present
             webhook_queue.dequeue(alert_id)
+            # Send resolved notification
+            asyncio.create_task(_send_notifications(alert_id, alert))
             print(f"Alert {alert_id} auto-resolved after timeout")
     except Exception as e:
         print(f"Error in delayed resolve for {alert_id}: {e}")
@@ -104,6 +108,8 @@ async def _process_webhook_queue():
                     storage.save("alerts/history", alert_id, alert)
                     storage.delete("alerts/active", alert_id)
                     webhook_queue.dequeue(alert_id)
+                    # Send resolved notification
+                    asyncio.create_task(_send_notifications(alert_id, alert))
                     print(f"Alert {alert_id} resolved from queue (expired timeout)")
                 else:
                     # Re-schedule background task
@@ -156,6 +162,8 @@ async def _cleanup_resolving_alerts():
                         alert["updated_at"] = utc_now_iso()
                         storage.save("alerts/history", alert_id, alert)
                         storage.delete("alerts/active", alert_id)
+                        # Send resolved notification
+                        asyncio.create_task(_send_notifications(alert_id, alert))
                         print(f"Alert {alert_id} resolved on startup (expired timeout)")
                     else:
                         # Re-schedule background task
@@ -163,6 +171,131 @@ async def _cleanup_resolving_alerts():
                         print(f"Re-scheduled delayed resolve for {alert_id}")
                 except Exception as e:
                     print(f"Error processing resolving alert {alert['id']}: {e}")
+
+
+async def _send_notifications(alert_id: str, alert_data: Dict[str, Any]):
+    """Background task: send notifications to channels configured for this alert's rule.
+    
+    If the alert's rule has specific channels configured, only those channels are used.
+    If no channels are configured for the rule, ALL enabled channels are used (backward compatibility).
+    Errors are logged but do not affect alert processing.
+    """
+    try:
+        # Get ALL enabled notification channels
+        all_channels = storage.list("notification_channels")
+        all_enabled = [ch for ch in all_channels if ch.get("enabled", True)]
+        
+        if not all_enabled:
+            print(f"No enabled notification channels found for alert {alert_id}")
+            return
+        
+        # Find the rule for this alert to get configured channels
+        alertname = alert_data.get("alertname", "")
+        rules = storage.list("rules")
+        matching_rule = None
+        for rule in rules:
+            if rule.get("name") == alertname:
+                matching_rule = rule
+                break
+        
+        # Determine which channels to use
+        # Check if channels key exists and is not None (distinguish [] from None)
+        rule_channels = matching_rule.get("channels") if matching_rule else None
+        
+        if rule_channels is not None:
+            # Rule has explicit channels configuration (could be [] or [id1, id2, ...])
+            if len(rule_channels) == 0:
+                # User explicitly set no channels — do NOT send notifications
+                print(f"Rule '{alertname}' has no channels configured, skipping notification")
+                return
+            
+            rule_channel_ids = set(rule_channels)
+            channels = [ch for ch in all_enabled if ch.get("id") in rule_channel_ids]
+            if not channels:
+                print(f"Rule '{alertname}' has channels configured but none are enabled, skipping notification")
+                return
+            print(f"Using {len(channels)} channel(s) configured for rule '{alertname}'")
+        else:
+            # No rule found or channels not set (None) - use all enabled channels (backward compatibility)
+            channels = all_enabled
+            print(f"No specific channels configured for rule '{alertname}', using all {len(channels)} enabled channel(s)")
+        
+        # Build alert payload
+        alert_payload = {
+            "alertname": alert_data.get("alertname"),
+            "status": alert_data.get("status", "firing"),
+            "severity": alert_data.get("severity", "warning"),
+            "description": alert_data.get("description"),
+            "summary": alert_data.get("summary"),
+            "labels": alert_data.get("labels", {}),
+            "annotations": alert_data.get("annotations", {}),
+            "starts_at": alert_data.get("starts_at"),
+            "ends_at": alert_data.get("ends_at"),
+            "diagnosis": alert_data.get("diagnosis"),
+            "generator_url": alert_data.get("generator_url"),
+            "fingerprint": alert_data.get("fingerprint"),
+        }
+        
+        # Send to each channel
+        for ch in channels:
+            ch_type = ch.get("channel_type")
+            config = ch.get("config", {})
+            notifier: Optional[BaseNotifier] = None
+            
+            if ch_type == "telegram":
+                notifier = TelegramNotifier(config)
+            elif ch_type == "webhook":
+                notifier = WebhookNotifier(config)
+            
+            if notifier:
+                try:
+                    success = await notifier.send(alert_payload)
+                    if success:
+                        print(f"Notification sent via {ch_type} channel '{ch.get('name')}' for alert {alert_id}")
+                    else:
+                        print(f"Notification failed via {ch_type} channel '{ch.get('name')}' for alert {alert_id}")
+                except Exception as e:
+                    print(f"Error sending notification via {ch_type} channel '{ch.get('name')}': {e}")
+    except Exception as e:
+        print(f"Error in _send_notifications for alert {alert_id}: {e}")
+
+
+async def _diagnose_and_notify(alert_id: str):
+    """Run AI diagnosis first, then send notification with diagnosis result.
+    
+    This ensures the notification contains the AI diagnosis instead of
+    sending two separate messages (alert first, diagnosis later).
+    """
+    try:
+        # Run diagnosis first
+        await diagnosis_service.run_diagnosis(alert_id)
+        
+        # Get updated alert with diagnosis
+        alert = storage.get("alerts/active", alert_id)
+        if not alert:
+            alert = storage.get("alerts/history", alert_id)
+        
+        if alert:
+            # Send notification with diagnosis included
+            await _send_notifications(alert_id, alert)
+            print(f"Notification sent with diagnosis for alert {alert_id}")
+        else:
+            print(f"Alert {alert_id} not found after diagnosis, skipping notification")
+    except Exception as e:
+        print(f"Error in diagnose_and_notify for {alert_id}: {e}")
+        # Fallback: send notification without diagnosis
+        try:
+            alert = storage.get("alerts/active", alert_id)
+            if alert:
+                await _send_notifications(alert_id, alert)
+                print(f"Fallback notification sent (no diagnosis) for alert {alert_id}")
+        except Exception as fallback_e:
+            print(f"Fallback notification also failed for {alert_id}: {fallback_e}")
+
+
+def _run_diagnose_and_notify_sync(alert_id: str):
+    """Synchronous wrapper for _diagnose_and_notify to use with BackgroundTasks."""
+    asyncio.create_task(_diagnose_and_notify(alert_id))
 
 
 async def _check_rule_exists_in_prometheus(alertname: str) -> bool:
@@ -294,6 +427,8 @@ async def _sync_with_alertmanager():
                         alert["acknowledged_at"] = None
                         alert["updated_at"] = utc_now_iso()
                         storage.save("alerts/active", alert_id, alert)
+                        # Send notification when alert becomes active again
+                        asyncio.create_task(_send_notifications(alert_id, alert))
                         reset_to_firing += 1
                         print(f"Reset acknowledged alert {alert_id} ({name}) to firing (still active in AM)")
                     elif not am_data:
@@ -315,6 +450,8 @@ async def _sync_with_alertmanager():
                                 alert["acknowledged_at"] = None
                                 alert["updated_at"] = utc_now_iso()
                                 storage.save("alerts/active", alert_id, alert)
+                                # Send notification when alert becomes active again
+                                asyncio.create_task(_send_notifications(alert_id, alert))
                                 reset_to_firing += 1
                                 print(f"Reset acknowledged alert {alert_id} ({name}) to firing with new fingerprint")
                             else:
@@ -332,6 +469,8 @@ async def _sync_with_alertmanager():
                                 alert["acknowledged_at"] = None
                                 alert["updated_at"] = utc_now_iso()
                                 storage.save("alerts/active", alert_id, alert)
+                                # Send notification when alert becomes active again
+                                asyncio.create_task(_send_notifications(alert_id, alert))
                                 reset_to_firing += 1
                                 print(f"Reset acknowledged alert {alert_id} ({name}) to firing (rule exists in Prometheus)")
                             else:
@@ -541,8 +680,8 @@ async def _sync_active_alerts_from_alertmanager(alertname_filter: Optional[str] 
                     "folder": folder,
                 }
                 storage.save("alerts/active", alert_id, alert)
-                # Trigger background diagnosis
-                asyncio.create_task(diagnosis_service.run_diagnosis(alert_id))
+                # Run diagnosis first, then send notification with diagnosis
+                asyncio.create_task(_diagnose_and_notify(alert_id))
                 created += 1
                 print(f"Created alert from Alertmanager sync: {alertname} ({fingerprint})")
             
@@ -1224,8 +1363,9 @@ async def receive_alert_webhook(
                     "folder": folder,
                 }
                 storage.save("alerts/active", alert_id, alert)
-                # Trigger background diagnosis only for new firing alerts
-                background_tasks.add_task(diagnosis_service.run_diagnosis, alert_id)
+                # Run diagnosis first, then send notification with diagnosis
+                # Use asyncio.create_task directly - it works correctly in async context
+                asyncio.create_task(_diagnose_and_notify(alert_id))
                 created_count += 1
         
         elif status == "resolved":
@@ -1250,7 +1390,10 @@ async def receive_alert_webhook(
                     # Save to persistent queue for reliability across restarts
                     webhook_queue.enqueue(existing["id"], resolve_at)
                     # Schedule background task to complete resolve after timeout
-                    background_tasks.add_task(_process_delayed_resolve, existing["id"], resolve_at)
+                    # Use asyncio.create_task for async function in async context
+                    asyncio.create_task(_process_delayed_resolve(existing["id"], resolve_at))
+                    # Do NOT send notification here - it will be sent when alert is fully resolved
+                    # This prevents duplicate notifications (one on resolve webhook, one after timeout)
                     resolved_count += 1
                 # If already resolving, do nothing (timeout already scheduled)
             # If no active alert found, do nothing (already resolved manually)
@@ -1401,6 +1544,9 @@ async def force_resolve_alert(alert_id: str):
     storage.delete("alerts/active", alert_id)
     webhook_queue.dequeue(alert_id)
     
+    # Send resolved notification
+    asyncio.create_task(_send_notifications(alert_id, alert))
+    
     return {"status": "resolved", "message": "Alert moved to history"}
 
 
@@ -1412,6 +1558,94 @@ async def get_webhook_queue():
         "pending_count": len(pending),
         "items": pending,
     }
+
+
+# Notification Channels
+@api_router.get("/notification-channels", response_model=List[NotificationChannel])
+async def list_notification_channels():
+    return storage.list("notification_channels")
+
+
+@api_router.post("/notification-channels", response_model=NotificationChannel)
+async def create_notification_channel(channel: NotificationChannel):
+    if not channel.id:
+        channel.id = str(uuid.uuid4())
+    now = utc_now_iso()
+    channel.created_at = now
+    channel.updated_at = now
+    storage.save("notification_channels", channel.id, channel.dict())
+    return channel
+
+
+@api_router.put("/notification-channels/{channel_id}", response_model=NotificationChannel)
+async def update_notification_channel(channel_id: str, channel: NotificationChannel):
+    existing = storage.get("notification_channels", channel_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Channel not found")
+    
+    channel.id = channel_id
+    channel.created_at = existing.get("created_at")
+    channel.updated_at = utc_now_iso()
+    storage.save("notification_channels", channel_id, channel.dict())
+    return channel
+
+
+@api_router.delete("/notification-channels/{channel_id}")
+async def delete_notification_channel(channel_id: str):
+    existing = storage.get("notification_channels", channel_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Channel not found")
+    
+    # Remove channel from any rules that reference it
+    rules = storage.list("rules")
+    for rule in rules:
+        if channel_id in rule.get("channels", []):
+            rule["channels"] = [c for c in rule["channels"] if c != channel_id]
+            rule["updated_at"] = utc_now_iso()
+            storage.save("rules", rule["id"], rule)
+    
+    storage.delete("notification_channels", channel_id)
+    return {"status": "deleted"}
+
+
+@api_router.post("/notification-channels/{channel_id}/test")
+async def test_notification_channel(channel_id: str):
+    """Test notification channel by sending a test alert."""
+    channel_data = storage.get("notification_channels", channel_id)
+    if not channel_data:
+        raise HTTPException(status_code=404, detail="Channel not found")
+    
+    ch_type = channel_data.get("channel_type")
+    config = channel_data.get("config", {})
+    
+    test_alert = {
+        "alertname": "Test Alert",
+        "status": "firing",
+        "severity": "warning",
+        "description": "This is a test notification from AlertOps.",
+        "summary": "Test notification",
+        "labels": {"test": "true", "source": "alertops"},
+        "annotations": {},
+        "starts_at": utc_now_iso(),
+        "diagnosis": None,
+        "generator_url": "",
+        "fingerprint": "test-fingerprint",
+    }
+    
+    notifier: Optional[BaseNotifier] = None
+    if ch_type == "telegram":
+        notifier = TelegramNotifier(config)
+    elif ch_type == "webhook":
+        notifier = WebhookNotifier(config)
+    
+    if not notifier:
+        raise HTTPException(status_code=400, detail=f"Unknown channel type: {ch_type}")
+    
+    success = await notifier.send(test_alert)
+    if success:
+        return {"status": "sent", "channel_id": channel_id}
+    else:
+        raise HTTPException(status_code=502, detail="Failed to send test notification")
 
 
 # LLM Providers

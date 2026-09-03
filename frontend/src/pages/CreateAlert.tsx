@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { AlertTriangle, Loader, Check, Wand2, Brain, Folder, FolderPlus, ChevronDown, Search, X } from 'lucide-react'
 import api from '../api/client'
+import ChannelSelectDropdown from '../components/ChannelSelectDropdown'
 
 interface AlertVariant {
   name: string
@@ -17,6 +18,13 @@ interface LLMProvider {
   model: string
   provider_type: string
   is_default: boolean
+}
+
+interface NotificationChannel {
+  id: string
+  name: string
+  channel_type: string
+  enabled: boolean
 }
 
 interface LocationState {
@@ -59,10 +67,13 @@ export default function CreateAlert() {
   const [providers, setProviders] = useState<LLMProvider[]>([])
   const [selectedProvider, setSelectedProvider] = useState<string>('')
   const [providersLoading, setProvidersLoading] = useState(true)
+  const [channels, setChannels] = useState<NotificationChannel[]>([])
+  const [selectedChannels, setSelectedChannels] = useState<string[]>([])
 
   useEffect(() => {
     loadProviders()
     loadFolders()
+    loadChannels()
   }, [])
 
   const loadProviders = async () => {
@@ -90,6 +101,15 @@ export default function CreateAlert() {
       setExistingFolders(data)
     } catch (err) {
       console.error('Failed to load folders:', err)
+    }
+  }
+
+  const loadChannels = async () => {
+    try {
+      const data = await api.get<NotificationChannel[]>('/notification-channels')
+      setChannels(data.filter(ch => ch.enabled))
+    } catch (err) {
+      console.error('Failed to load channels:', err)
     }
   }
 
@@ -154,6 +174,7 @@ export default function CreateAlert() {
         severity,
         folder: folder.trim() || null,
         resolve_timeout: parseInt(resolveTimeout) || 5,
+        channels: selectedChannels,
         labels: {},
         annotations: {
           summary: name,
@@ -546,6 +567,15 @@ export default function CreateAlert() {
           <div style={{ marginBottom: '12px', fontSize: '12px', color: 'var(--text-muted)' }}>
             Resolve timeout: delay before closing the alert after metric recovery. Prevents flapping.
           </div>
+
+          {/* Notification Channels */}
+          {channels.length > 0 && (
+            <ChannelSelectDropdown
+              channels={channels}
+              selectedIds={selectedChannels}
+              onChange={setSelectedChannels}
+            />
+          )}
 
           {error && (
             <div style={{ color: 'var(--error)', fontSize: '14px', marginBottom: '12px' }}>

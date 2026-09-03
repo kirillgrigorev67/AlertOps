@@ -16,6 +16,16 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return response.json()
 }
 
+export interface NotificationChannel {
+  id: string;
+  name: string;
+  channel_type: "telegram" | "webhook";
+  enabled: boolean;
+  config: Record<string, any>;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export const api = {
   get: <T>(path: string) => request<T>(path),
   
@@ -33,6 +43,15 @@ export const api = {
   
   delete: <T>(path: string) => 
     request<T>(path, { method: 'DELETE' }),
+  
+  // Notification Channels
+  channels: {
+    list: () => request<NotificationChannel[]>("/notification-channels"),
+    create: (data: Omit<NotificationChannel, "id" | "created_at" | "updated_at">) => request<NotificationChannel>("/notification-channels", { method: "POST", body: JSON.stringify(data) }),
+    update: (id: string, data: Omit<NotificationChannel, "id" | "created_at" | "updated_at">) => request<NotificationChannel>(`/notification-channels/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+    delete: (id: string) => request<{ status: string }>(`/notification-channels/${id}`, { method: "DELETE" }),
+    test: (id: string) => request<{ status: string }>(`/notification-channels/${id}/test`, { method: "POST" }),
+  },
 }
 
 export default api

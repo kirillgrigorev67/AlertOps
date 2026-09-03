@@ -25,6 +25,7 @@ import {
 } from 'lucide-react'
 import api from '../api/client'
 import ConfirmModal from '../components/ConfirmModal'
+import ChannelSelectDropdown from '../components/ChannelSelectDropdown'
 
 interface AlertRule {
   id: string
@@ -37,11 +38,19 @@ interface AlertRule {
   severity: string
   folder?: string | null
   resolve_timeout?: number
+  channels?: string[]
   labels: Record<string, string>
   annotations: Record<string, string>
   created_at: string
   updated_at: string
   silenced_until?: string | null
+}
+
+interface NotificationChannel {
+  id: string
+  name: string
+  channel_type: string
+  enabled: boolean
 }
 
 interface FolderInfo {
@@ -83,6 +92,7 @@ export default function AlertRules() {
   const [editForm, setEditForm] = useState<Partial<AlertRule>>({})
   const [editResolveTimeout, setEditResolveTimeout] = useState('5m')
   const [editFolder, setEditFolder] = useState('')
+  const [editSelectedChannels, setEditSelectedChannels] = useState<string[]>([])
   const [, setExistingFolders] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
 
@@ -91,6 +101,7 @@ export default function AlertRules() {
 
   const [providers, setProviders] = useState<LLMProvider[]>([])
   const [selectedProvider, setSelectedProvider] = useState('')
+  const [notificationChannels, setNotificationChannels] = useState<NotificationChannel[]>([])
   const [generating, setGenerating] = useState(false)
   const [aiVariants, setAiVariants] = useState<AlertVariant[]>([])
   const [aiError, setAiError] = useState('')
@@ -133,6 +144,7 @@ export default function AlertRules() {
   useEffect(() => {
     loadRules()
     loadFolders()
+    loadNotificationChannels()
   }, [])
 
   const loadRules = async () => {
@@ -157,6 +169,23 @@ export default function AlertRules() {
     } catch (err) {
       console.error('Failed to load folders:', err)
     }
+  }
+
+  const loadNotificationChannels = async () => {
+    try {
+      const data = await api.get<NotificationChannel[]>('/notification-channels')
+      setNotificationChannels(data.filter(ch => ch.enabled))
+    } catch (err) {
+      console.error('Failed to load notification channels:', err)
+    }
+  }
+
+  const getChannelNames = (channelIds?: string[]) => {
+    if (!channelIds || channelIds.length === 0) return []
+    return channelIds
+      .map(id => notificationChannels.find(ch => ch.id === id))
+      .filter(Boolean)
+      .map(ch => ch!)
   }
 
   const openDeleteConfirm = (id: string) => {
@@ -205,10 +234,12 @@ export default function AlertRules() {
     setEditForm({ ...rule })
     setEditResolveTimeout(String(rule.resolve_timeout || 5) + 'm')
     setEditFolder(rule.folder || '')
+    setEditSelectedChannels(rule.channels || [])
     setAiVariants([])
     setAiError('')
     loadProviders()
     loadFolders()
+    loadNotificationChannels()
     setEditModalOpen(true)
   }
 
@@ -220,6 +251,7 @@ export default function AlertRules() {
     setAiError('')
     setSelectedProvider('')
     setEditFolder('')
+    setEditSelectedChannels([])
   }
 
   const generateVariants = async () => {
@@ -280,6 +312,7 @@ export default function AlertRules() {
         ...editForm,
         folder: editFolder.trim() || null,
         resolve_timeout: timeoutNum,
+        channels: editSelectedChannels,
       })
 
       setRules(rules.map((rule: AlertRule) => (rule.id === updated.id ? updated : rule)))
@@ -713,6 +746,22 @@ export default function AlertRules() {
                         {rule.query_type ? rule.query_type.toUpperCase() : 'N/A'}
                       </span>
 
+                      {getChannelNames(rule.channels).map(ch => (
+                        <span
+                          key={ch.id}
+                          className="badge"
+                          style={{
+                            background: ch.channel_type === 'telegram' ? 'rgba(34, 158, 217, 0.15)' : 'rgba(99, 102, 241, 0.15)',
+                            color: ch.channel_type === 'telegram' ? '#229ed9' : '#6366f1',
+                            flexShrink: 0,
+                            fontSize: '11px',
+                          }}
+                          title={ch.name}
+                        >
+                          {ch.channel_type === 'telegram' ? 'TG' : 'WH'}: {ch.name}
+                        </span>
+                      ))}
+
                       {isSilenced(rule.silenced_until) && (
                         <span
                           className="badge"
@@ -1038,6 +1087,22 @@ export default function AlertRules() {
                           >
                             {rule.query_type ? rule.query_type.toUpperCase() : 'N/A'}
                           </span>
+
+                          {getChannelNames(rule.channels).map(ch => (
+                            <span
+                              key={ch.id}
+                              className="badge"
+                              style={{
+                                background: ch.channel_type === 'telegram' ? 'rgba(34, 158, 217, 0.15)' : 'rgba(99, 102, 241, 0.15)',
+                                color: ch.channel_type === 'telegram' ? '#229ed9' : '#6366f1',
+                                flexShrink: 0,
+                                fontSize: '11px',
+                              }}
+                              title={ch.name}
+                            >
+                              {ch.channel_type === 'telegram' ? 'TG' : 'WH'}: {ch.name}
+                            </span>
+                          ))}
 
                           {isSilenced(rule.silenced_until) && (
                             <span
@@ -1734,6 +1799,15 @@ export default function AlertRules() {
                   </div>
                 )}
               </div>
+
+              {/* Notification Channels */}
+              {notificationChannels.length > 0 && (
+                <ChannelSelectDropdown
+                  channels={notificationChannels}
+                  selectedIds={editSelectedChannels}
+                  onChange={setEditSelectedChannels}
+                />
+              )}
 
               <div
                 style={{

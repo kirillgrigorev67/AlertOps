@@ -8,7 +8,8 @@ import {
   Zap,
   ShieldAlert,
   Sun,
-  Moon
+  Moon,
+  Radio
 } from 'lucide-react'
 import ServiceStatus from './ServiceStatus'
 import { useTheme } from './ThemeContext'
@@ -122,6 +123,10 @@ export default function Layout({ children }: LayoutProps) {
           <NavLink to="/history" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
             <History size={20} />
             History
+          </NavLink>
+          <NavLink to="/channels" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+            <Radio size={20} />
+            Channels
           </NavLink>
           <NavLink to="/providers" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
             <Settings size={20} />

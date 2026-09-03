@@ -336,6 +336,8 @@ input:focus, textarea:focus, select:focus {
   max-height: 90vh;
   overflow-y: auto;
   animation: modalIn 0.2s ease;
+  width: 560px;
+  max-width: 90vw;
 }
 
 @keyframes modalIn {
@@ -447,4 +449,139 @@ textarea.form-control {
   font-size: 12px;
   color: var(--text-muted);
   margin-top: 2px;
+}
+
+/* Notification Channels */
+.channels-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 1rem;
+}
+
+.channel-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.channel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.channel-type-badge {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+}
+
+.channel-type-badge.type-telegram {
+  background: rgba(34, 158, 217, 0.15);
+  color: #229ed9;
+}
+
+.channel-type-badge.type-webhook {
+  background: rgba(99, 102, 241, 0.15);
+  color: #6366f1;
+}
+
+.channel-actions {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.channel-name {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.channel-config {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+}
+
+.config-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.config-label {
+  color: var(--text-secondary);
+  min-width: 60px;
+}
+
+.config-value {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+
+.config-value.masked {
+  color: var(--text-muted);
+}
+
+.delete-confirm {
+  margin-top: 0.5rem;
+  padding: 0.75rem;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+}
+
+.btn-icon {
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  transition: var(--transition);
+  font-size: 0.875rem;
+}
+
+.btn-icon:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.btn-icon:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Channel selector in forms */
+.channel-selector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.channel-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 6px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: var(--transition);
+}
+
+.channel-checkbox:hover {
+  border-color: var(--accent-primary);
+}
+
+.channel-checkbox input[type="checkbox"] {
+  margin: 0;
+}
+
+.channel-checkbox.checked {
+  border-color: var(--accent-primary);
+  background: rgba(79, 70, 229, 0.1);
 }

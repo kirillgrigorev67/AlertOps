@@ -48,6 +48,7 @@ class AlertRule(BaseModel):
     dashboard_uid: Optional[str] = None
     resolve_timeout: int = 5  # minutes to wait before closing after metric recovery
     silenced_until: Optional[str] = None  # ISO timestamp until which the alert is silenced; null = not silenced
+    channels: List[str] = Field(default_factory=list)  # list of notification channel IDs
 
 
 class Alert(BaseModel):
@@ -75,6 +76,18 @@ class Alert(BaseModel):
     resolution_reason: Optional[str] = None  # why alert was resolved: silenced, rule_deleted, manual_force_resolve, zombie_cleanup
     silenced_by: Optional[str] = None  # "folder:name" or "rule:name" if resolved by silence
     silenced_at: Optional[str] = None  # ISO timestamp when silence was applied
+
+
+class NotificationChannel(BaseModel):
+    id: Optional[str] = None
+    name: str
+    channel_type: str  # telegram or webhook
+    enabled: bool = True
+    config: Dict[str, Any] = Field(default_factory=dict)
+    # telegram config: {"bot_token": "...", "chat_id": "..."}
+    # webhook config: {"url": "...", "method": "POST", "headers": {}, "timeout_seconds": 30}
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
 
 
 class LLMProvider(BaseModel):
