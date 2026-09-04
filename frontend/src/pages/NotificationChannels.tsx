@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Radio, Plus, Trash2, Edit2, Send, Loader, Check, X, Tag, Globe, MessageSquare, Bell } from 'lucide-react'
+import { Radio, Plus, Trash2, Edit2, Send, Loader, Check, X, Tag, Globe, MessageSquare, Bell, Search } from 'lucide-react'
 import api from '../api/client'
 import ConfirmModal from '../components/ConfirmModal'
 
@@ -20,6 +20,7 @@ export default function NotificationChannels() {
   const [editingChannel, setEditingChannel] = useState<NotificationChannel | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [search, setSearch] = useState('')
 
   // Delete confirmation
   const [confirmOpen, setConfirmOpen] = useState(false)
@@ -223,21 +224,48 @@ export default function NotificationChannels() {
     )
   }
 
+  const filteredChannels = channels.filter(channel => {
+    if (search === '') return true
+    const term = search.toLowerCase()
+    return channel.name.toLowerCase().includes(term)
+  })
+
   return (
     <div>
-      <div className="header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div className="header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
         <h1 className="page-title">
           <Radio size={28} style={{ verticalAlign: 'middle', marginRight: '8px' }} />
           Notification Channels
         </h1>
-        <button className="btn btn-primary" onClick={openAddModal}>
-          <Plus size={18} />
-          Add Channel
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{ position: 'relative', width: '260px' }}>
+            <Search size={16} style={{ 
+              position: 'absolute', 
+              left: '12px', 
+              top: '50%', 
+              transform: 'translateY(-50%)',
+              color: 'var(--text-muted)'
+            }} />
+            <input
+              type="text"
+              placeholder="Search channels..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              style={{ 
+                width: '100%', 
+                paddingLeft: '36px',
+              }}
+            />
+          </div>
+          <button className="btn btn-primary" onClick={openAddModal}>
+            <Plus size={18} />
+            Add Channel
+          </button>
+        </div>
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-        {channels.map(channel => (
+        {filteredChannels.map(channel => (
           <div key={channel.id} className="card">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: 0, overflow: 'hidden' }}>
@@ -366,17 +394,21 @@ export default function NotificationChannels() {
         ))}
       </div>
 
-      {channels.length === 0 && !loading && (
+      {filteredChannels.length === 0 && !loading && (
         <div className="empty-state">
           <Bell size={48} style={{ color: 'var(--text-muted)', marginBottom: '16px' }} />
-          <h3 style={{ marginBottom: '8px' }}>No notification channels</h3>
+          <h3 style={{ marginBottom: '8px' }}>
+            {search ? 'No channels match your search' : 'No notification channels'}
+          </h3>
           <p style={{ color: 'var(--text-secondary)', marginBottom: '24px' }}>
-            Create a channel to receive alerts via Telegram or Webhook
+            {search ? 'Try a different search term' : 'Create a channel to receive alerts via Telegram or Webhook'}
           </p>
-          <button className="btn btn-primary" onClick={openAddModal}>
-            <Plus size={18} />
-            Add Channel
-          </button>
+          {!search && (
+            <button className="btn btn-primary" onClick={openAddModal}>
+              <Plus size={18} />
+              Add Channel
+            </button>
+          )}
         </div>
       )}
 

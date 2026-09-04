@@ -106,21 +106,42 @@ export default function AlertHistory() {
 
   return (
     <div>
-      <div className="header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div className="header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
         <h1 className="page-title">
           <History size={28} style={{ verticalAlign: 'middle', marginRight: '8px' }} />
           Alert History
         </h1>
-        {alerts.length > 0 && (
-          <button
-            className="btn btn-secondary"
-            onClick={openClearConfirm}
-            style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#ef4444' }}
-          >
-            <Trash2 size={16} />
-            Clear History
-          </button>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{ position: 'relative', width: '260px' }}>
+            <Search size={16} style={{ 
+              position: 'absolute', 
+              left: '12px', 
+              top: '50%', 
+              transform: 'translateY(-50%)',
+              color: 'var(--text-muted)'
+            }} />
+            <input
+              type="text"
+              placeholder="Search by name or description..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              style={{ 
+                width: '100%', 
+                paddingLeft: '36px',
+              }}
+            />
+          </div>
+          {alerts.length > 0 && (
+            <button
+              className="btn btn-secondary"
+              onClick={openClearConfirm}
+              style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#ef4444' }}
+            >
+              <Trash2 size={16} />
+              Clear History
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Filters */}
@@ -155,25 +176,6 @@ export default function AlertHistory() {
               <option key={f.name} value={f.name}>{f.name}</option>
             ))}
           </select>
-        </div>
-        <div style={{ position: 'relative', maxWidth: '300px', width: '100%' }}>
-          <Search size={16} style={{ 
-            position: 'absolute', 
-            left: '12px', 
-            top: '50%', 
-            transform: 'translateY(-50%)',
-            color: 'var(--text-muted)'
-          }} />
-          <input
-            type="text"
-            placeholder="Search by name or description..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            style={{ 
-              width: '100%', 
-              paddingLeft: '36px',
-            }}
-          />
         </div>
       </div>
 

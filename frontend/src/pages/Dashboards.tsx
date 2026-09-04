@@ -26,7 +26,6 @@ export default function Dashboards() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
-  const [panelSearch, setPanelSearch] = useState('')
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -66,14 +65,6 @@ export default function Dashboards() {
     }
   }
 
-  const handleRefresh = () => {
-    if (selectedDashboard) {
-      loadPanels(selectedDashboard)
-    } else {
-      loadDashboards()
-    }
-  }
-
   const createAlert = (panel: Panel) => {
     navigate('/create-alert', {
       state: {
@@ -110,61 +101,34 @@ export default function Dashboards() {
 
   return (
     <div>
-      <div className="header">
+      <div className="header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
         <h1 className="page-title">
           <LayoutDashboard size={28} style={{ verticalAlign: 'middle', marginRight: '8px' }} />
           Dashboards
         </h1>
-        <button
-          className="btn btn-secondary"
-          onClick={handleRefresh}
-          style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-          disabled={loading}
-        >
-          <RefreshCw size={16} style={loading ? { animation: 'spin 1s linear infinite' } : undefined} />
-          Refresh
-        </button>
-      </div>
-
-      {error && (
-        <div className="error-state" style={{ marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span>{error}</span>
-          <button
-            className="btn btn-primary"
-            onClick={loadDashboards}
-            style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-          >
-            <RefreshCw size={16} />
-            Retry
-          </button>
+        <div style={{ position: 'relative', width: '260px' }}>
+          <Search size={16} style={{ 
+            position: 'absolute', 
+            left: '12px', 
+            top: '50%', 
+            transform: 'translateY(-50%)',
+            color: 'var(--text-muted)'
+          }} />
+          <input
+            type="text"
+            placeholder="Search dashboards or panels..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            style={{ 
+              width: '100%', 
+              paddingLeft: '36px',
+            }}
+          />
         </div>
-      )}
+      </div>
 
       {!selectedDashboard ? (
         <div>
-          <div style={{ marginBottom: '16px' }}>
-            <div style={{ position: 'relative' }}>
-              <Search size={16} style={{ 
-                position: 'absolute', 
-                left: '12px', 
-                top: '50%', 
-                transform: 'translateY(-50%)',
-                color: 'var(--text-muted)'
-              }} />
-              <input
-                type="text"
-                placeholder="Search dashboards..."
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                style={{ 
-                  width: '100%', 
-                  paddingLeft: '36px',
-                  maxWidth: '400px'
-                }}
-              />
-            </div>
-          </div>
-          
           <div className="grid grid-2">
             {dashboards
               .filter(d => 
@@ -211,34 +175,11 @@ export default function Dashboards() {
             Panels in {dashboards.find(d => d.uid === selectedDashboard)?.title}
           </h2>
 
-          <div style={{ marginBottom: '16px' }}>
-            <div style={{ position: 'relative' }}>
-              <Search size={16} style={{ 
-                position: 'absolute', 
-                left: '12px', 
-                top: '50%', 
-                transform: 'translateY(-50%)',
-                color: 'var(--text-muted)'
-              }} />
-              <input
-                type="text"
-                placeholder="Search panels..."
-                value={panelSearch}
-                onChange={e => setPanelSearch(e.target.value)}
-                style={{ 
-                  width: '100%', 
-                  paddingLeft: '36px',
-                  maxWidth: '400px'
-                }}
-              />
-            </div>
-          </div>
-
           <div className="grid grid-2">
             {panels
               .filter(p => 
-                panelSearch === '' || 
-                p.title.toLowerCase().includes(panelSearch.toLowerCase())
+                search === '' || 
+                p.title.toLowerCase().includes(search.toLowerCase())
               )
               .map(panel => (
               <div key={panel.id} className="card">

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Bell, CheckCircle, Loader, AlertCircle, Eye, Database } from 'lucide-react'
+import { Bell, CheckCircle, Loader, AlertCircle, Eye, Database, Search } from 'lucide-react'
 import api from '../api/client'
 
 interface Alert {
@@ -21,6 +21,7 @@ export default function ActiveAlerts() {
   const [alerts, setAlerts] = useState<Alert[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
 
   useEffect(() => {
     loadAlerts()
@@ -96,26 +97,66 @@ export default function ActiveAlerts() {
     return <div className="error-state">{error}</div>
   }
 
+  const filteredAlerts = alerts.filter(alert => {
+    if (search === '') return true
+    const term = search.toLowerCase()
+    return (
+      alert.alertname.toLowerCase().includes(term) ||
+      alert.description.toLowerCase().includes(term) ||
+      alert.summary.toLowerCase().includes(term)
+    )
+  })
+
   return (
     <div>
-      <div className="header">
+      <div className="header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
         <h1 className="page-title">
           <Bell size={28} style={{ verticalAlign: 'middle', marginRight: '8px' }} />
           Active Alerts
         </h1>
-        <span style={{ color: 'var(--text-secondary)' }}>
-          {alerts.length} active
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{ position: 'relative', width: '260px' }}>
+            <Search size={16} style={{ 
+              position: 'absolute', 
+              left: '12px', 
+              top: '50%', 
+              transform: 'translateY(-50%)',
+              color: 'var(--text-muted)'
+            }} />
+            <input
+              type="text"
+              placeholder="Search alerts..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              style={{ 
+                width: '100%', 
+                paddingLeft: '36px',
+              }}
+            />
+          </div>
+          <span style={{ color: 'var(--text-secondary)', fontSize: '14px', whiteSpace: 'nowrap' }}>
+            {filteredAlerts.length} active
+          </span>
+        </div>
       </div>
 
-      {alerts.length === 0 ? (
+      {filteredAlerts.length === 0 ? (
         <div className="empty-state">
-          <CheckCircle size={48} style={{ marginBottom: '16px', color: 'var(--success)' }} />
-          <p>No active alerts. Everything looks good!</p>
+          {search ? (
+            <>
+              <Bell size={48} style={{ marginBottom: '16px', color: 'var(--text-muted)' }} />
+              <p>No alerts match your search</p>
+            </>
+          ) : (
+            <>
+              <CheckCircle size={48} style={{ marginBottom: '16px', color: 'var(--success)' }} />
+              <p>No active alerts. Everything looks good!</p>
+            </>
+          )}
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          {alerts.map(alert => (
+          {filteredAlerts.map(alert => (
             <div key={alert.id} className={`alert-card ${getSeverityClass(alert.severity)} ${!alert.read ? 'alert-unread' : ''}`}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
                 <div>

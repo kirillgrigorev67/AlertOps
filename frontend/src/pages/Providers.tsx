@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Settings, Plus, Trash2, Star, Check, X, Edit2, Loader, RefreshCw } from 'lucide-react'
+import { Settings, Plus, Trash2, Star, Check, X, Edit2, Loader, RefreshCw, Search } from 'lucide-react'
 import api from '../api/client'
 import ConfirmModal from '../components/ConfirmModal'
 
@@ -27,6 +27,7 @@ export default function Providers() {
   const [editingProvider, setEditingProvider] = useState<LLMProvider | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [search, setSearch] = useState('')
 
   // Delete confirmation
   const [confirmOpen, setConfirmOpen] = useState(false)
@@ -211,27 +212,57 @@ export default function Providers() {
     )
   }
 
+  const filteredProviders = providers.filter(provider => {
+    if (search === '') return true
+    const term = search.toLowerCase()
+    return (
+      provider.name.toLowerCase().includes(term) ||
+      provider.model.toLowerCase().includes(term)
+    )
+  })
+
   return (
     <div>
-      <div className="header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div className="header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
         <h1 className="page-title">
           <Settings size={28} style={{ verticalAlign: 'middle', marginRight: '8px' }} />
           LLM Providers
         </h1>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <button className="btn btn-secondary" onClick={testAllProviders} disabled={providers.length === 0}>
-            <RefreshCw size={16} />
-            Test All
-          </button>
-          <button className="btn btn-primary" onClick={openAddModal}>
-            <Plus size={18} />
-            Add Provider
-          </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{ position: 'relative', width: '260px' }}>
+            <Search size={16} style={{ 
+              position: 'absolute', 
+              left: '12px', 
+              top: '50%', 
+              transform: 'translateY(-50%)',
+              color: 'var(--text-muted)'
+            }} />
+            <input
+              type="text"
+              placeholder="Search providers..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              style={{ 
+                width: '100%', 
+                paddingLeft: '36px',
+              }}
+            />
+          </div>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button className="btn btn-secondary" onClick={testAllProviders} disabled={providers.length === 0}>
+              <RefreshCw size={16} />
+              Test All
+            </button>
+            <button className="btn btn-primary" onClick={openAddModal}>
+              <Plus size={18} />
+              Add Provider
+            </button>
+          </div>
         </div>
       </div>
 
       <div className="grid grid-2">
-        {providers.map(provider => (
+        {filteredProviders.map(provider => (
           <div key={provider.id} className="card">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
               <div style={{ minWidth: 0, flex: 1 }}>
@@ -323,15 +354,17 @@ export default function Providers() {
         ))}
       </div>
 
-      {providers.length === 0 && (
+      {filteredProviders.length === 0 && (
         <div className="empty-state">
           <Settings size={48} color="var(--text-muted)" />
-          <h3>No LLM providers configured</h3>
-          <p>Add a provider to enable AI-powered alert generation and diagnosis</p>
-          <button className="btn btn-primary" onClick={openAddModal} style={{ marginTop: '16px' }}>
-            <Plus size={16} />
-            Add Provider
-          </button>
+          <h3>{search ? 'No providers match your search' : 'No LLM providers configured'}</h3>
+          <p>{search ? 'Try a different search term' : 'Add a provider to enable AI-powered alert generation and diagnosis'}</p>
+          {!search && (
+            <button className="btn btn-primary" onClick={openAddModal} style={{ marginTop: '16px' }}>
+              <Plus size={16} />
+              Add Provider
+            </button>
+          )}
         </div>
       )}
 

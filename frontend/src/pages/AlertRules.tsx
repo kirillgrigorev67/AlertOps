@@ -568,16 +568,39 @@ export default function AlertRules() {
 
   return (
     <div>
-      <div className="header">
+      <div className="header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
         <h1 className="page-title">
           <Shield size={28} style={{ verticalAlign: 'middle', marginRight: '8px' }} />
           Alert Rules
         </h1>
-
-        <Link to="/create-alert" className="btn btn-primary">
-          <Plus size={18} />
-          Create Rule
-        </Link>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{ position: 'relative', width: '260px' }}>
+            <Search
+              size={16}
+              style={{
+                position: 'absolute',
+                left: '12px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                color: 'var(--text-muted)',
+              }}
+            />
+            <input
+              type="text"
+              placeholder="Search by name or description..."
+              value={searchQuery}
+              onChange={(event: { target: { value: string } }) => setSearchQuery(event.target.value)}
+              style={{
+                width: '100%',
+                paddingLeft: '36px',
+              }}
+            />
+          </div>
+          <Link to="/create-alert" className="btn btn-primary">
+            <Plus size={18} />
+            Create Rule
+          </Link>
+        </div>
       </div>
 
       {error && (
@@ -646,30 +669,6 @@ export default function AlertRules() {
           <FolderPlus size={16} />
           New Folder
         </button>
-
-        <div style={{ position: 'relative', maxWidth: '300px', width: '100%' }}>
-          <Search
-            size={16}
-            style={{
-              position: 'absolute',
-              left: '12px',
-              top: '50%',
-              transform: 'translateY(-50%)',
-              color: 'var(--text-muted)',
-            }}
-          />
-
-          <input
-            type="text"
-            placeholder="Search by name or description..."
-            value={searchQuery}
-            onChange={(event: { target: { value: string } }) => setSearchQuery(event.target.value)}
-            style={{
-              width: '100%',
-              paddingLeft: '36px',
-            }}
-          />
-        </div>
       </div>
 
       <div style={{ marginBottom: '16px', color: 'var(--text-muted)', fontSize: '14px' }}>
