@@ -125,11 +125,15 @@ class TelegramNotifier(BaseNotifier):
             for k, v in labels.items():
                 lines.append(f'  • <code>{k}</code>: {v}')
 
-        # Footer with timestamp
+        # Footer with timestamps
         lines.append(f'')
         lines.append(f'<code>{"─" * 40}</code>')
         starts_at = alert.get("starts_at", "")
-        if starts_at:
+        ends_at = alert.get("ends_at", "")
+        if status == "resolved" and ends_at:
+            lines.append(f'⏱ <b>Started:</b> {starts_at}')
+            lines.append(f'✅ <b>Resolved:</b> {ends_at}')
+        elif starts_at:
             lines.append(f'⏱ <b>Started:</b> {starts_at}')
 
         message = "\n".join(lines)

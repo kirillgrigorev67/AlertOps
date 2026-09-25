@@ -160,9 +160,13 @@ class WebhookNotifier(BaseNotifier):
         lines.append('  </div>')
 
         # Footer
-        lines.append('  <div style="background: #1e293b; padding: 10px 16px; border-top: 1px solid #334155; display: flex; align-items: center; gap: 6px;">')
+        lines.append('  <div style="background: #1e293b; padding: 10px 16px; border-top: 1px solid #334155; display: flex; align-items: center; gap: 12px;">')
         starts_at = alert.get("starts_at", "")
-        if starts_at:
+        ends_at = alert.get("ends_at", "")
+        if status == "resolved" and ends_at:
+            lines.append(f'    <span style="font-size: 11px; color: #64748b;">⏱ Started: {starts_at}</span>')
+            lines.append(f'    <span style="font-size: 11px; color: #22c55e;">✅ Resolved: {ends_at}</span>')
+        elif starts_at:
             lines.append(f'    <span style="font-size: 11px; color: #64748b;">⏱ Started: {starts_at}</span>')
         lines.append('  </div>')
 
