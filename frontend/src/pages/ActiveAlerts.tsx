@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Bell, CheckCircle, Loader, AlertCircle, Eye, Database, Search } from 'lucide-react'
+import { Bell, CheckCircle, Loader, AlertCircle, Database, Search } from 'lucide-react'
 import api from '../api/client'
 
 interface Alert {
@@ -39,33 +39,6 @@ export default function ActiveAlerts() {
     } finally {
       setLoading(false)
     }
-  }
-
-  const resolveAlert = async (id: string) => {
-    try {
-      await api.post(`/alerts/${id}/resolve`, {})
-      loadAlerts()
-    } catch (err) {
-      console.error('Failed to resolve alert:', err)
-    }
-  }
-
-  const getStatusBadge = (status: string) => {
-    if (status === 'acknowledged') {
-      return (
-        <span className="badge" style={{ 
-          background: 'rgba(34,197,94,0.2)', 
-          color: 'var(--success)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '4px'
-        }}>
-          <Eye size={10} />
-          Acknowledged
-        </span>
-      )
-    }
-    return null
   }
 
   const getSeverityClass = (severity: string) => {
@@ -165,7 +138,6 @@ export default function ActiveAlerts() {
                     <span className={`badge ${getSeverityBadge(alert.severity)}`}>
                       {alert.severity}
                     </span>
-                    {getStatusBadge(alert.status)}
                     {alert.diagnosis_status === 'analyzing' && (
                       <span className="badge badge-info" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                         <Loader size={12} className="spinner" />
@@ -179,15 +151,6 @@ export default function ActiveAlerts() {
                     </p>
                   )}
                 </div>
-                {alert.status !== 'acknowledged' && (
-                  <button
-                    className="btn btn-secondary"
-                    onClick={() => resolveAlert(alert.id)}
-                    title="Acknowledge alert"
-                  >
-                    <CheckCircle size={16} />
-                  </button>
-                )}
               </div>
 
               <div style={{ 

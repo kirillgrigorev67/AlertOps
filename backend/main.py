@@ -118,14 +118,14 @@ async def _process_webhook_queue():
             except Exception as e:
                 print(f"Error processing queued alert {alert_id}: {e}")
                 webhook_queue.increment_attempts(alert_id)
-        elif alert.get("status") in ("firing", "acknowledged"):
+        elif alert.get("status") == "firing":
             # Alert was reset to firing, need to re-resolve
             alert["status"] = "resolving"
             alert["resolve_at"] = resolve_at
             alert["updated_at"] = utc_now_iso()
             storage.save("alerts/active", alert_id, alert)
             asyncio.create_task(_process_delayed_resolve(alert_id, resolve_at))
-            print(f"Re-queued resolve for {alert_id} (was firing/acknowledged)")
+            print(f"Re-queued resolve for {alert_id} (was firing)")
         else:
             # Already resolved or moved, clean up queue
             webhook_queue.dequeue(alert_id)
@@ -326,10 +326,6 @@ async def _sync_with_alertmanager():
     Logic:
     - firing + AM knows about it → keep as-is
     - firing + AM doesn't know → zombie cleanup
-    - acknowledged + AM says active/firing → reset to firing (alert is still firing)
-    - acknowledged + AM says resolved → start resolving (delayed move to history)
-    - acknowledged + AM doesn't know + rule exists in Prometheus → reset to firing (fingerprint changed)
-    - acknowledged + AM doesn't know + rule deleted → zombie cleanup
     """
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -420,71 +416,6 @@ async def _sync_with_alertmanager():
                                 print(f"Cleaned up zombie alert {alert_id} ({name}) (rule deleted)")
                     # If AM knows about it, do nothing (keep firing)
                 
-                elif status == "acknowledged":
-                    if am_data and am_data["state"] == "active":
-                        # Alertmanager knows about it and it's active → reset to firing
-                        alert["status"] = "firing"
-                        alert["acknowledged_at"] = None
-                        alert["updated_at"] = utc_now_iso()
-                        storage.save("alerts/active", alert_id, alert)
-                        # Send notification when alert becomes active again
-                        asyncio.create_task(_send_notifications(alert_id, alert))
-                        reset_to_firing += 1
-                        print(f"Reset acknowledged alert {alert_id} ({name}) to firing (still active in AM)")
-                    elif not am_data:
-                        # Alertmanager doesn't know about this exact fingerprint
-                        # Check if AM knows about the alertname at all
-                        if name in am_names:
-                            # AM knows the alertname but with different fingerprint
-                            # → rule was recreated, reset to firing with new fingerprint
-                            # Find the new fingerprint from AM
-                            new_fp = None
-                            for (am_fp, am_name), am_info in am_map.items():
-                                if am_name == name and am_info["state"] == "active":
-                                    new_fp = am_fp
-                                    break
-                            
-                            if new_fp:
-                                alert["status"] = "firing"
-                                alert["fingerprint"] = new_fp
-                                alert["acknowledged_at"] = None
-                                alert["updated_at"] = utc_now_iso()
-                                storage.save("alerts/active", alert_id, alert)
-                                # Send notification when alert becomes active again
-                                asyncio.create_task(_send_notifications(alert_id, alert))
-                                reset_to_firing += 1
-                                print(f"Reset acknowledged alert {alert_id} ({name}) to firing with new fingerprint")
-                            else:
-                                # AM knows the name but no active alerts → might be resolved
-                                # Keep as acknowledged, wait for resolved webhook
-                                pass
-                        else:
-                            # AM doesn't know this alertname at all
-                            # Check if rule still exists in Prometheus
-                            rule_exists = await _check_rule_exists_in_prometheus(name)
-                            if rule_exists:
-                                # Rule exists but AM doesn't know about it → might be transient
-                                # Reset to firing to let user re-acknowledge if needed
-                                alert["status"] = "firing"
-                                alert["acknowledged_at"] = None
-                                alert["updated_at"] = utc_now_iso()
-                                storage.save("alerts/active", alert_id, alert)
-                                # Send notification when alert becomes active again
-                                asyncio.create_task(_send_notifications(alert_id, alert))
-                                reset_to_firing += 1
-                                print(f"Reset acknowledged alert {alert_id} ({name}) to firing (rule exists in Prometheus)")
-                            else:
-                                # Rule deleted → zombie cleanup
-                                alert["status"] = "resolved"
-                                alert["ends_at"] = utc_now_iso()
-                                alert["updated_at"] = utc_now_iso()
-                                alert["resolution_reason"] = "zombie_cleanup"
-                                storage.save("alerts/history", alert_id, alert)
-                                storage.delete("alerts/active", alert_id)
-                                webhook_queue.dequeue(alert_id)
-                                cleaned += 1
-                                print(f"Cleaned up zombie acknowledged alert {alert_id} ({name}) (rule deleted)")
-            
             if cleaned > 0 or reset_to_firing > 0:
                 print(f"Alertmanager sync: cleaned up {cleaned} zombies, reset {reset_to_firing} to firing")
     except Exception as e:
@@ -1380,7 +1311,7 @@ async def receive_alert_webhook(
             if existing:
                 # Start delayed resolve instead of immediate move to history
                 existing_status = existing.get("status")
-                if existing_status in ("firing", "acknowledged"):
+                if existing_status == "firing":
                     resolve_timeout = existing.get("resolve_timeout", 5)
                     resolve_at = (datetime.now(timezone.utc) + __import__('datetime').timedelta(minutes=resolve_timeout)).isoformat().replace("+00:00", "Z")
                     existing["status"] = "resolving"
@@ -1464,9 +1395,8 @@ async def list_active_alerts():
 
 @api_router.get("/alerts/unread-count")
 async def get_unread_count():
-    """Return the number of all active alerts (including acknowledged)."""
+    """Return the number of active alerts."""
     alerts = storage.list("alerts/active")
-    # Count all alerts in active list (firing + acknowledged)
     return {"unread_count": len(alerts)}
 
 
@@ -1508,23 +1438,6 @@ async def mark_alert_read(alert_id: str):
     storage.save("alerts/active", alert_id, alert)
     
     return {"status": "read"}
-
-
-@api_router.post("/alerts/{alert_id}/resolve")
-async def resolve_alert(alert_id: str):
-    """Manually acknowledge an alert. Does NOT move to history - only Alertmanager resolved webhook does that."""
-    alert = storage.get("alerts/active", alert_id)
-    if not alert:
-        raise HTTPException(status_code=404, detail="Alert not found")
-    
-    alert["status"] = "acknowledged"
-    alert["acknowledged_at"] = utc_now_iso()
-    alert["updated_at"] = utc_now_iso()
-    
-    # Keep in active, just mark as acknowledged
-    storage.save("alerts/active", alert_id, alert)
-    
-    return {"status": "acknowledged"}
 
 
 @api_router.post("/alerts/{alert_id}/force-resolve")
