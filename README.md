@@ -191,7 +191,7 @@ ALERT_HISTORY_CLEANUP_ACTION=delete
 | GET | `/api/cleanup/logs` | View recent cleanup operation logs |
 | GET | `/api/cleanup/archives` | List archived alert history files |
 
-**Important**: Only resolved alerts in `history/` are affected. Active (firing/acknowledged/resolving) alerts are never touched by cleanup.
+**Important**: Only resolved alerts in `history/` are affected. Active (firing/resolving) alerts are never touched by cleanup.
 
 ### Prometheus Configuration
 
@@ -306,11 +306,10 @@ AlertOps supports sending alerts to external channels:
 
 ### 6. Alert Counter Badge
 
-The sidebar shows a **red badge** next to "Active Alerts" with the current count of all active alerts (both firing and acknowledged). The counter:
+The sidebar shows a **red badge** next to "Active Alerts" with the current count of all active alerts. The counter:
 
 - Updates automatically every 5 seconds via polling
 - Shows **99+** when there are more than 99 active alerts
-- Does **not** reset when you open the Active Alerts page
 - Disappears when there are no active alerts
 
 ### 7. File Storage
@@ -401,7 +400,6 @@ The backend exposes a REST API at `http://localhost:8000/api/`. All endpoints re
 | `POST` | `/api/alerts/mark-all-read` | Mark all alerts as read |
 | `GET` | `/api/alerts/{id}` | Get a single alert (searches active, then history) |
 | `POST` | `/api/alerts/{id}/read` | Mark one alert as read |
-| `POST` | `/api/alerts/{id}/resolve` | Acknowledge an alert (status → acknowledged) |
 | `POST` | `/api/alerts/{id}/force-resolve` | Force move alert to history immediately (use when Alertmanager resolved webhook was lost) |
 
 ### Alert History
