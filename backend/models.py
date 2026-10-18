@@ -151,6 +151,7 @@ class UserCreate(BaseModel):
 
 
 class UserUpdate(BaseModel):
+    username: Optional[str] = None
     role: Optional[str] = None
     active: Optional[bool] = None
     password: Optional[str] = None  # for password reset

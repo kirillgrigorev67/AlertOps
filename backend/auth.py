@@ -181,6 +181,8 @@ def update_user(user_id: str, updates: dict) -> Optional[dict]:
     if not user:
         return None
     
+    if "username" in updates and updates["username"]:
+        user["username"] = updates["username"]
     if "role" in updates and updates["role"] is not None:
         user["role"] = updates["role"]
     if "active" in updates and updates["active"] is not None:

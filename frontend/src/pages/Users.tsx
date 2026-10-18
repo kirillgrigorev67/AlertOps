@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { UserPlus, Trash2, Key, Shield, Loader, X, Folder, Search, Check, ChevronDown, Plus } from 'lucide-react'
+import { UserPlus, Trash2, Key, Shield, Loader, X, Folder, Search, Check, ChevronDown, Plus, Edit2 } from 'lucide-react'
 import api, { type User } from '../api/client'
 import ConfirmModal from '../components/ConfirmModal'
 
@@ -258,6 +258,11 @@ export default function Users() {
   // Delete confirm
   const [deleteTarget, setDeleteTarget] = useState<User | null>(null)
   
+  // Edit username modal
+  const [editUsernameTarget, setEditUsernameTarget] = useState<User | null>(null)
+  const [editUsernameValue, setEditUsernameValue] = useState('')
+  const [savingUsername, setSavingUsername] = useState(false)
+  
   // Folder access modal
   const [folderTarget, setFolderTarget] = useState<User | null>(null)
   const [selectedFolders, setSelectedFolders] = useState<string[]>([])
@@ -358,6 +363,27 @@ export default function Users() {
       await loadUsers()
     } catch (err: any) {
       setError(err.message || 'Failed to delete user')
+    }
+  }
+
+  const openEditUsernameModal = (user: User) => {
+    setEditUsernameTarget(user)
+    setEditUsernameValue(user.username)
+  }
+
+  const saveUsername = async () => {
+    if (!editUsernameTarget || !editUsernameValue.trim()) return
+    
+    setSavingUsername(true)
+    setError('')
+    try {
+      await api.users.update(editUsernameTarget.id, { username: editUsernameValue.trim() })
+      setEditUsernameTarget(null)
+      await loadUsers()
+    } catch (err: any) {
+      setError(err.message || 'Failed to update username')
+    } finally {
+      setSavingUsername(false)
     }
   }
 
@@ -477,6 +503,14 @@ export default function Users() {
                   <div style={{ display: 'flex', gap: '4px' }}>
                     {!user.is_default && (
                       <>
+                        <button
+                          onClick={() => openEditUsernameModal(user)}
+                          className="btn btn-secondary"
+                          style={{ padding: '4px', color: 'var(--text-secondary)' }}
+                          title="Edit username"
+                        >
+                          <Edit2 size={14} />
+                        </button>
                         <button
                           onClick={() => setResetTarget(user)}
                           className="btn btn-secondary"
@@ -625,6 +659,38 @@ export default function Users() {
               <button onClick={() => setFolderTarget(null)} className="btn btn-secondary">Cancel</button>
               <button onClick={saveFolders} className="btn btn-primary" disabled={savingFolders}>
                 {savingFolders ? <><Loader size={16} className="spinner" /> Saving...</> : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Username Modal */}
+      {editUsernameTarget && (
+        <div className="modal-overlay" onClick={() => setEditUsernameTarget(null)}>
+          <div className="modal" onClick={(e: React.MouseEvent) => e.stopPropagation()} style={{ maxWidth: '420px', width: '90%' }}>
+            <div className="modal-header">
+              <h3 className="modal-title">Edit Username — {editUsernameTarget.username}</h3>
+              <button onClick={() => setEditUsernameTarget(null)} className="btn btn-secondary" style={{ padding: '6px' }}>
+                <X size={18} />
+              </button>
+            </div>
+            <div className="modal-body">
+              <div>
+                <label className="form-label">New Username</label>
+                <input
+                  type="text"
+                  value={editUsernameValue}
+                  onChange={(e) => setEditUsernameValue(e.target.value)}
+                  autoFocus
+                  style={{ width: '100%', padding: '10px 12px', background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', fontSize: '14px' }}
+                />
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button onClick={() => setEditUsernameTarget(null)} className="btn btn-secondary">Cancel</button>
+              <button onClick={saveUsername} className="btn btn-primary" disabled={savingUsername || !editUsernameValue.trim()}>
+                {savingUsername ? <><Loader size={16} className="spinner" /> Saving...</> : 'Save'}
               </button>
             </div>
           </div>

@@ -98,7 +98,7 @@ export const api = {
     list: () => request<User[]>('/users'),
     create: (data: { username: string; password: string; role: string; folders?: string[] }) => 
       request<User>('/users', { method: 'POST', body: JSON.stringify(data) }),
-    update: (id: string, data: { role?: string; active?: boolean; password?: string; folders?: string[] }) => 
+    update: (id: string, data: { username?: string; role?: string; active?: boolean; password?: string; folders?: string[] }) => 
       request<User>(`/users/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id: string) => request<{ status: string }>(`/users/${id}`, { method: 'DELETE' }),
   },

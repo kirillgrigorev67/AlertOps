@@ -830,11 +830,17 @@ async def create_user_endpoint(data: UserCreate, request: Request):
 
 @api_router.put("/users/{user_id}")
 async def update_user_endpoint(user_id: str, data: UserUpdate, request: Request):
-    """Update a user's role, active status, password, or folder access (admin only). Creates folders if they don't exist."""
+    """Update a user's username, role, active status, password, or folder access (admin only). Creates folders if they don't exist."""
     admin = auth_module.require_admin(request)
     if user_id == "default-admin":
         raise HTTPException(status_code=400, detail="Cannot modify the default admin user")
     updates = {}
+    if data.username is not None and data.username.strip():
+        # Check if username already exists for another user
+        existing = auth_module.find_user_by_username(data.username.strip())
+        if existing and existing["id"] != user_id:
+            raise HTTPException(status_code=400, detail="Username already exists")
+        updates["username"] = data.username.strip()
     if data.role is not None:
         if data.role not in ("admin", "user"):
             raise HTTPException(status_code=400, detail="Invalid role. Must be 'admin' or 'user'")
