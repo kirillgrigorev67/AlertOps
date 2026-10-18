@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Zap, Loader } from 'lucide-react'
+import { Zap, Loader, X, AlertTriangle } from 'lucide-react'
 import { useAuth } from '../components/AuthContext'
 
 export default function Login() {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
+  const [showErrorModal, setShowErrorModal] = useState(false)
   const [loading, setLoading] = useState(false)
   const { login, authEnabled } = useAuth()
   const navigate = useNavigate()
@@ -15,6 +16,7 @@ export default function Login() {
     e.preventDefault()
     if (!username || !password) {
       setError('Please enter username and password')
+      setShowErrorModal(true)
       return
     }
     
@@ -25,7 +27,8 @@ export default function Login() {
       await login(username, password)
       navigate('/')
     } catch (err: any) {
-      setError(err.message || 'Login failed')
+      setError(err.message || 'Login failed. Check your username and password.')
+      setShowErrorModal(true)
     } finally {
       setLoading(false)
     }
@@ -106,19 +109,6 @@ export default function Login() {
             />
           </div>
           
-          {error && (
-            <div style={{
-              color: 'var(--error)',
-              fontSize: '13px',
-              marginBottom: '16px',
-              padding: '8px 12px',
-              background: 'rgba(220, 38, 38, 0.1)',
-              borderRadius: 'var(--radius-sm)',
-            }}>
-              {error}
-            </div>
-          )}
-          
           <button
             type="submit"
             disabled={loading}
@@ -135,6 +125,31 @@ export default function Login() {
           </button>
         </form>
       </div>
+
+      {/* Error Modal */}
+      {showErrorModal && (
+        <div className="modal-overlay" onClick={() => setShowErrorModal(false)}>
+          <div className="modal" onClick={(e: React.MouseEvent) => e.stopPropagation()} style={{ maxWidth: '400px', width: '90%' }}>
+            <div className="modal-header">
+              <h3 className="modal-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <AlertTriangle size={20} color="var(--error)" />
+                Login Failed
+              </h3>
+              <button onClick={() => setShowErrorModal(false)} className="btn btn-secondary" style={{ padding: '6px' }}>
+                <X size={18} />
+              </button>
+            </div>
+            <div className="modal-body">
+              <p style={{ color: 'var(--text-secondary)', fontSize: '14px', lineHeight: 1.5 }}>
+                {error}
+              </p>
+            </div>
+            <div className="modal-footer">
+              <button onClick={() => setShowErrorModal(false)} className="btn btn-primary">OK</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

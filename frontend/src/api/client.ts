@@ -4,7 +4,7 @@ function getToken(): string | null {
   return localStorage.getItem('alertops_token')
 }
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
+async function request<T>(path: string, options?: RequestInit & { skipRedirect?: boolean }): Promise<T> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   }
@@ -22,7 +22,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     },
   })
   
-  if (response.status === 401) {
+  if (response.status === 401 && !options?.skipRedirect) {
     // Token expired or invalid — clear and redirect to login
     localStorage.removeItem('alertops_token')
     localStorage.removeItem('alertops_user')
@@ -87,6 +87,7 @@ export const api = {
       request<{ access_token: string; token_type: string; role: string }>('/auth/login', {
         method: 'POST',
         body: JSON.stringify({ username, password }),
+        skipRedirect: true,
       }),
     me: () => request<{ username: string; role: string; folders?: string[] }>('/auth/me'),
     status: () => request<{ enabled: boolean }>('/auth/status'),
