@@ -54,7 +54,7 @@ Manage multiple LLM providers. Supports DeepSeek, OpenAI, and any OpenAI-compati
 ---
 
 ### Notification Channels
-Configure notification channels (Telegram, Webhook) and assign them to alert rules. Each rule can use specific channels or fall back to all enabled channels.
+Configure notification channels (Telegram, Webhook) and assign them to folders. All rules within a folder share the same notification configuration.
 
 
 ![Notification Channels](assets/screenshots/notification-channels.png)
@@ -62,7 +62,7 @@ Configure notification channels (Telegram, Webhook) and assign them to alert rul
 ---
 
 ### Alert Rules
-Manage all alert rules in one place. View rule status, edit queries and conditions, assign notification channels, silence rules individually or by folder, and delete rules with automatic cleanup of associated active alerts.
+Manage all alert rules in one place. View rule status, edit queries and conditions, organize rules into folders, assign notification channels to folders, silence rules individually or by folder, and delete rules with automatic cleanup of associated active alerts.
 
 
 ![Alert Rules](assets/screenshots/alert-rules.png)
@@ -293,16 +293,19 @@ AlertOps supports sending alerts to external channels:
 - **Telegram** — sends formatted messages with alert details and AI diagnosis
 - **Webhook** — POSTs JSON payload to any URL
 
-**Channel assignment**:
-- Each alert rule can have specific channels assigned
-- Rules without channels use all enabled channels (backward compatibility)
-- Rules with explicitly empty channels (`[]`) receive **no notifications**
+**Channel assignment (folder-level only)**:
+Notification channels are managed exclusively at the folder level. When an alert fires:
+
+- If the alert's rule belongs to a folder that has channels assigned → those channels are used.
+- If the rule has no folder, or its folder has no channels → no notifications are sent.
+
+> **Note:** Channels cannot be assigned to individual rules. All rules within a folder share the same notification configuration.
 
 **Configuration**:
 1. Open **Settings → Notification Channels**
 2. Add a channel (Telegram bot token + chat ID, or webhook URL)
 3. Test the channel with a test alert
-4. Assign channels to rules in the rule list or during alert creation
+4. Assign channels to a folder via the folder's "Channels" button in **Alert Rules**
 
 ### 6. Alert Counter Badge
 
@@ -369,6 +372,8 @@ The backend exposes a REST API at `http://localhost:8000/api/`. All endpoints re
 | `DELETE` | `/api/rules/folders/{folder_name}` | Delete a folder (rules become uncategorized) |
 | `POST` | `/api/rules/folders/{folder_name}/silence?duration_minutes=60` | Silence all rules in a folder for N minutes. Active alerts are moved to history with `silenced_by` marker |
 | `POST` | `/api/rules/folders/{folder_name}/unsilence` | Remove silence from a folder. Rules resume normal operation |
+| `GET` | `/api/rules/folders/{folder_name}/channels` | Get the notification channel IDs assigned to a folder |
+| `POST` | `/api/rules/folders/{folder_name}/channels` | Set the notification channel IDs for a folder (`{"channels": ["id1", "id2"]}`) |
 
 ### Alert Rule Silence (Individual)
 
@@ -416,7 +421,7 @@ The backend exposes a REST API at `http://localhost:8000/api/`. All endpoints re
 | `GET` | `/api/notification-channels` | List all notification channels |
 | `POST` | `/api/notification-channels` | Create a new channel (Telegram or Webhook) |
 | `PUT` | `/api/notification-channels/{id}` | Update a channel |
-| `DELETE` | `/api/notification-channels/{id}` | Delete a channel (also removes it from all rules) |
+| `DELETE` | `/api/notification-channels/{id}` | Delete a channel (also removes it from all folders) |
 | `POST` | `/api/notification-channels/{id}/test` | Send a test notification |
 
 ### LLM Providers

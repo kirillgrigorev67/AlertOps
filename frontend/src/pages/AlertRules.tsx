@@ -22,6 +22,7 @@ import {
   Shield,
   Check,
   FolderPlus,
+  Radio,
 } from 'lucide-react'
 import api from '../api/client'
 import ConfirmModal from '../components/ConfirmModal'
@@ -92,7 +93,6 @@ export default function AlertRules() {
   const [editForm, setEditForm] = useState<Partial<AlertRule>>({})
   const [editResolveTimeout, setEditResolveTimeout] = useState('5m')
   const [editFolder, setEditFolder] = useState('')
-  const [editSelectedChannels, setEditSelectedChannels] = useState<string[]>([])
   const [, setExistingFolders] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
 
@@ -128,6 +128,12 @@ export default function AlertRules() {
   const [silenceTarget, setSilenceTarget] = useState<{ type: 'rule' | 'folder'; id: string; name: string } | null>(null)
   const [silenceDuration, setSilenceDuration] = useState<number>(60)
   const [silenceLoading, setSilenceLoading] = useState(false)
+
+  // Folder channels modal state
+  const [folderChannelsModalOpen, setFolderChannelsModalOpen] = useState(false)
+  const [folderChannelsTarget, setFolderChannelsTarget] = useState<string | null>(null)
+  const [folderChannelsSelected, setFolderChannelsSelected] = useState<string[]>([])
+  const [folderChannelsLoading, setFolderChannelsLoading] = useState(false)
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -180,14 +186,6 @@ export default function AlertRules() {
     }
   }
 
-  const getChannelNames = (channelIds?: string[]) => {
-    if (!channelIds || channelIds.length === 0) return []
-    return channelIds
-      .map(id => notificationChannels.find(ch => ch.id === id))
-      .filter(Boolean)
-      .map(ch => ch!)
-  }
-
   const openDeleteConfirm = (id: string) => {
     setRuleToDelete(id)
     setConfirmOpen(true)
@@ -234,7 +232,6 @@ export default function AlertRules() {
     setEditForm({ ...rule })
     setEditResolveTimeout(String(rule.resolve_timeout || 5) + 'm')
     setEditFolder(rule.folder || '')
-    setEditSelectedChannels(rule.channels || [])
     setAiVariants([])
     setAiError('')
     loadProviders()
@@ -251,7 +248,6 @@ export default function AlertRules() {
     setAiError('')
     setSelectedProvider('')
     setEditFolder('')
-    setEditSelectedChannels([])
   }
 
   const generateVariants = async () => {
@@ -312,7 +308,6 @@ export default function AlertRules() {
         ...editForm,
         folder: editFolder.trim() || null,
         resolve_timeout: timeoutNum,
-        channels: editSelectedChannels,
       })
 
       setRules(rules.map((rule: AlertRule) => (rule.id === updated.id ? updated : rule)))
@@ -558,6 +553,44 @@ export default function AlertRules() {
     }
   }
 
+  // Folder channels modal functions
+  const openFolderChannelsModal = async (folderName: string) => {
+    setFolderChannelsTarget(folderName)
+    setFolderChannelsLoading(true)
+    setFolderChannelsModalOpen(true)
+    try {
+      const data = await api.get<{ folder: string; channels: string[] }>(`/rules/folders/${encodeURIComponent(folderName)}/channels`)
+      setFolderChannelsSelected(data.channels || [])
+    } catch (err) {
+      console.error('Failed to load folder channels:', err)
+      setFolderChannelsSelected([])
+    } finally {
+      setFolderChannelsLoading(false)
+    }
+  }
+
+  const closeFolderChannelsModal = () => {
+    setFolderChannelsModalOpen(false)
+    setFolderChannelsTarget(null)
+    setFolderChannelsSelected([])
+  }
+
+  const saveFolderChannels = async () => {
+    if (!folderChannelsTarget) return
+    setFolderChannelsLoading(true)
+    try {
+      await api.post(`/rules/folders/${encodeURIComponent(folderChannelsTarget)}/channels`, {
+        channels: folderChannelsSelected,
+      })
+      await loadFolders()
+      closeFolderChannelsModal()
+    } catch (err: any) {
+      setError(err?.message || 'Failed to save folder channels')
+    } finally {
+      setFolderChannelsLoading(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="loading-container">
@@ -744,22 +777,6 @@ export default function AlertRules() {
                       >
                         {rule.query_type ? rule.query_type.toUpperCase() : 'N/A'}
                       </span>
-
-                      {getChannelNames(rule.channels).map(ch => (
-                        <span
-                          key={ch.id}
-                          className="badge"
-                          style={{
-                            background: ch.channel_type === 'telegram' ? 'rgba(34, 158, 217, 0.15)' : 'rgba(99, 102, 241, 0.15)',
-                            color: ch.channel_type === 'telegram' ? '#229ed9' : '#6366f1',
-                            flexShrink: 0,
-                            fontSize: '11px',
-                          }}
-                          title={ch.name}
-                        >
-                          {ch.channel_type === 'telegram' ? 'TG' : 'WH'}: {ch.name}
-                        </span>
-                      ))}
 
                       {isSilenced(rule.silenced_until) && (
                         <span
@@ -1027,6 +1044,17 @@ export default function AlertRules() {
                     <button
                       onClick={(e) => {
                         e.stopPropagation()
+                        openFolderChannelsModal(folderKey)
+                      }}
+                      className="btn btn-secondary"
+                      style={{ padding: '4px', opacity: 0.6 }}
+                      title="Manage folder notification channels"
+                    >
+                      <Radio size={14} />
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
                         openDeleteFolderConfirm(folderKey)
                       }}
                       className="btn btn-secondary"
@@ -1086,22 +1114,6 @@ export default function AlertRules() {
                           >
                             {rule.query_type ? rule.query_type.toUpperCase() : 'N/A'}
                           </span>
-
-                          {getChannelNames(rule.channels).map(ch => (
-                            <span
-                              key={ch.id}
-                              className="badge"
-                              style={{
-                                background: ch.channel_type === 'telegram' ? 'rgba(34, 158, 217, 0.15)' : 'rgba(99, 102, 241, 0.15)',
-                                color: ch.channel_type === 'telegram' ? '#229ed9' : '#6366f1',
-                                flexShrink: 0,
-                                fontSize: '11px',
-                              }}
-                              title={ch.name}
-                            >
-                              {ch.channel_type === 'telegram' ? 'TG' : 'WH'}: {ch.name}
-                            </span>
-                          ))}
 
                           {isSilenced(rule.silenced_until) && (
                             <span
@@ -1513,6 +1525,74 @@ export default function AlertRules() {
         </div>
       )}
 
+      {/* Folder Channels Modal */}
+      {folderChannelsModalOpen && folderChannelsTarget && (
+        <div className="modal-overlay" onClick={closeFolderChannelsModal}>
+          <div
+            className="modal"
+            onClick={(e: React.MouseEvent) => e.stopPropagation()}
+            style={{ maxWidth: '480px', width: '90%' }}
+          >
+            <div className="modal-header">
+              <h3 className="modal-title">
+                <Radio size={20} style={{ verticalAlign: 'middle', marginRight: '8px' }} />
+                Folder Channels — {folderChannelsTarget}
+              </h3>
+              <button onClick={closeFolderChannelsModal} className="btn btn-secondary" style={{ padding: '6px' }}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '14px', margin: 0 }}>
+                Select the notification channels that alerts in this folder inherit when they have no channels of their own.
+              </p>
+
+              {folderChannelsLoading ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px', color: 'var(--text-muted)' }}>
+                  <Loader size={16} className="spinner" />
+                  Loading channels...
+                </div>
+              ) : notificationChannels.length > 0 ? (
+                <ChannelSelectDropdown
+                  channels={notificationChannels}
+                  selectedIds={folderChannelsSelected}
+                  onChange={setFolderChannelsSelected}
+                  label="Notification Channels"
+                />
+              ) : (
+                <div style={{ padding: '12px', color: 'var(--text-muted)', fontSize: '13px', textAlign: 'center' }}>
+                  No notification channels available. Create channels first in the Channels page.
+                </div>
+              )}
+            </div>
+
+            <div className="modal-footer">
+              <button onClick={closeFolderChannelsModal} className="btn btn-secondary">
+                Cancel
+              </button>
+              <button
+                onClick={saveFolderChannels}
+                className="btn btn-primary"
+                disabled={folderChannelsLoading}
+              >
+                {folderChannelsLoading ? (
+                  <>
+                    <Loader size={16} className="spinner" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save size={16} />
+                    Save Channels
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {editModalOpen && editingRule && (
         <div className="modal-overlay" onClick={closeEditModal}>
           <div
@@ -1799,13 +1879,10 @@ export default function AlertRules() {
                 )}
               </div>
 
-              {/* Notification Channels */}
-              {notificationChannels.length > 0 && (
-                <ChannelSelectDropdown
-                  channels={notificationChannels}
-                  selectedIds={editSelectedChannels}
-                  onChange={setEditSelectedChannels}
-                />
+              {editFolder && (
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                  Notifications for this rule are managed at the folder level. Channels assigned to folder "{editFolder}" will be used.
+                </div>
               )}
 
               <div

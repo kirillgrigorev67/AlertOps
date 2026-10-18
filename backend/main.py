@@ -189,7 +189,7 @@ async def _send_notifications(alert_id: str, alert_data: Dict[str, Any]):
             print(f"No enabled notification channels found for alert {alert_id}")
             return
         
-        # Find the rule for this alert to get configured channels
+        # Find the rule for this alert to get configured channels and folder
         alertname = alert_data.get("alertname", "")
         rules = storage.list("rules")
         matching_rule = None
@@ -198,27 +198,31 @@ async def _send_notifications(alert_id: str, alert_data: Dict[str, Any]):
                 matching_rule = rule
                 break
         
-        # Determine which channels to use
-        # Check if channels key exists and is not None (distinguish [] from None)
-        rule_channels = matching_rule.get("channels") if matching_rule else None
+        # Determine which channels to use.
+        # Channels are managed exclusively at the folder level:
+        #   - If the rule belongs to a folder that has channels assigned,
+        #     those channels are used.
+        #   - Rules without a folder (or with a folder that has no channels)
+        #     do NOT send notifications.
+        folder_name = matching_rule.get("folder") if matching_rule else None
         
-        if rule_channels is not None:
-            # Rule has explicit channels configuration (could be [] or [id1, id2, ...])
-            if len(rule_channels) == 0:
-                # User explicitly set no channels — do NOT send notifications
-                print(f"Rule '{alertname}' has no channels configured, skipping notification")
+        if folder_name:
+            folder_channel_ids = folder_manager.get_folder_channels(folder_name)
+            if len(folder_channel_ids) > 0:
+                folder_id_set = set(folder_channel_ids)
+                channels = [ch for ch in all_enabled if ch.get("id") in folder_id_set]
+                if not channels:
+                    print(f"Folder '{folder_name}' has channels configured but none are enabled, skipping notification")
+                    return
+                print(f"Using {len(channels)} channel(s) from folder '{folder_name}' for rule '{alertname}'")
+            else:
+                # Folder exists but has no channels assigned — no notifications
+                print(f"Rule '{alertname}' is in folder '{folder_name}' which has no channels, skipping notification")
                 return
-            
-            rule_channel_ids = set(rule_channels)
-            channels = [ch for ch in all_enabled if ch.get("id") in rule_channel_ids]
-            if not channels:
-                print(f"Rule '{alertname}' has channels configured but none are enabled, skipping notification")
-                return
-            print(f"Using {len(channels)} channel(s) configured for rule '{alertname}'")
         else:
-            # No rule found or channels not set (None) - use all enabled channels (backward compatibility)
-            channels = all_enabled
-            print(f"No specific channels configured for rule '{alertname}', using all {len(channels)} enabled channel(s)")
+            # No folder at all — no notifications
+            print(f"Rule '{alertname}' has no folder, skipping notification")
+            return
         
         # Build alert payload
         alert_payload = {
@@ -952,6 +956,39 @@ async def unsilence_folder(folder_name: str):
     }
 
 
+@api_router.get("/rules/folders/{folder_name}/channels")
+async def get_folder_channels(folder_name: str):
+    """Return the notification channel IDs assigned to a folder."""
+    channels = folder_manager.get_folder_channels(folder_name)
+    return {"folder": folder_name, "channels": channels}
+
+
+@api_router.post("/rules/folders/{folder_name}/channels")
+async def set_folder_channels(folder_name: str, data: Dict[str, Any]):
+    """Set the notification channel IDs for a folder.
+
+    Body: {"channels": ["channel-id-1", "channel-id-2"]}
+    An empty list clears the folder's channel assignment.
+    """
+    if not isinstance(data, dict) or "channels" not in data:
+        raise HTTPException(status_code=400, detail="'channels' list is required")
+    
+    channel_ids = data["channels"]
+    if not isinstance(channel_ids, list):
+        raise HTTPException(status_code=400, detail="'channels' must be a list of channel IDs")
+    
+    try:
+        folder = folder_manager.set_folder_channels(folder_name, channel_ids)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
+    return {
+        "status": "updated",
+        "folder": folder_name,
+        "channels": folder.get("channels", []),
+    }
+
+
 @api_router.post("/rules/{rule_id}/silence")
 async def silence_rule(rule_id: str, duration_minutes: int = 60):
     """Silence a single alert rule. Duration in minutes, or -1 for indefinite."""
@@ -1516,6 +1553,9 @@ async def delete_notification_channel(channel_id: str):
             rule["channels"] = [c for c in rule["channels"] if c != channel_id]
             rule["updated_at"] = utc_now_iso()
             storage.save("rules", rule["id"], rule)
+    
+    # Remove channel from any folders that reference it
+    folder_manager.remove_channel_from_all_folders(channel_id)
     
     storage.delete("notification_channels", channel_id)
     return {"status": "deleted"}

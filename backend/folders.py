@@ -4,7 +4,10 @@ Folder management module.
 Folders are stored as a separate JSON file (data/folders.json) so they
 persist even when no alert rules reference them.
 
-Each folder is now an object: { "name": str, "silenced_until": str|null }
+Each folder is an object: { "name": str, "silenced_until": str|null, "channels": list[str] }
+
+The optional "channels" field holds notification channel IDs that alerts in
+this folder inherit when the alert itself has no explicit channel list.
 """
 
 import os
@@ -37,8 +40,16 @@ def _migrate_legacy_folders(data: Dict[str, Any]) -> Dict[str, Any]:
     folders = data.get("folders", [])
     if folders and isinstance(folders[0], str):
         # Old format: list of strings
-        data["folders"] = [{"name": f, "silenced_until": None} for f in folders]
+        data["folders"] = [{"name": f, "silenced_until": None, "channels": []} for f in folders]
     return data
+
+
+def _normalize_folder(folder: Dict[str, Any]) -> Dict[str, Any]:
+    """Ensure a folder object has all expected keys (channels defaults to [])."""
+    folder.setdefault("channels", [])
+    if folder.get("channels") is None:
+        folder["channels"] = []
+    return folder
 
 
 def list_folders() -> List[Dict[str, Any]]:
@@ -47,7 +58,7 @@ def list_folders() -> List[Dict[str, Any]]:
     data = _load_folders_data()
     data = _migrate_legacy_folders(data)
     
-    folders_from_list = data.get("folders", [])
+    folders_from_list = [_normalize_folder(dict(f)) for f in data.get("folders", [])]
     # Also scan rules for any folders not in the list
     rules = main_storage.list("rules")
     folders_from_rules = set()
@@ -62,7 +73,7 @@ def list_folders() -> List[Dict[str, Any]]:
     # Add folders from rules that aren't in the list
     for name in sorted(folders_from_rules):
         if name not in existing_names:
-            folders_from_list.append({"name": name, "silenced_until": None})
+            folders_from_list.append({"name": name, "silenced_until": None, "channels": []})
     
     return folders_from_list
 
@@ -90,7 +101,7 @@ def create_folder(name: str) -> Dict[str, Any]:
         if f["name"] == name:
             raise ValueError(f"Folder '{name}' already exists")
     
-    new_folder = {"name": name, "silenced_until": None}
+    new_folder = {"name": name, "silenced_until": None, "channels": []}
     folders.append(new_folder)
     data["folders"] = folders
     _save_folders_data(data)
@@ -168,11 +179,85 @@ def set_folder_silenced(name: str, silenced_until: Optional[str]) -> Dict[str, A
             return f
     
     # Folder not in list but exists in rules — add it
-    new_folder = {"name": name, "silenced_until": silenced_until}
+    new_folder = {"name": name, "silenced_until": silenced_until, "channels": []}
     folders.append(new_folder)
     data["folders"] = folders
     _save_folders_data(data)
     return new_folder
+
+
+def get_folder_channels(name: str) -> List[str]:
+    """Return the list of notification channel IDs assigned to a folder.
+
+    Returns an empty list when the folder has no channels configured (or the
+    folder does not exist).
+    """
+    folder = get_folder(name)
+    if not folder:
+        return []
+    channels = folder.get("channels") or []
+    return list(channels)
+
+
+def set_folder_channels(name: str, channel_ids: List[str]) -> Dict[str, Any]:
+    """Set the list of notification channel IDs for a folder.
+
+    The folder is created on demand if it does not exist yet (mirrors how
+    set_folder_silenced handles unknown folders). Returns the updated folder.
+    """
+    name = name.strip()
+    if not name:
+        raise ValueError("Folder name cannot be empty")
+
+    if channel_ids is None:
+        channel_ids = []
+    # Deduplicate while preserving order
+    seen = set()
+    unique_ids: List[str] = []
+    for cid in channel_ids:
+        if cid and cid not in seen:
+            seen.add(cid)
+            unique_ids.append(cid)
+
+    data = _load_folders_data()
+    data = _migrate_legacy_folders(data)
+    folders = [_normalize_folder(dict(f)) for f in data.get("folders", [])]
+
+    for f in folders:
+        if f["name"] == name:
+            f["channels"] = unique_ids
+            data["folders"] = folders
+            _save_folders_data(data)
+            return f
+
+    # Folder not in list — add it
+    new_folder = {"name": name, "silenced_until": None, "channels": unique_ids}
+    folders.append(new_folder)
+    data["folders"] = folders
+    _save_folders_data(data)
+    return new_folder
+
+
+def remove_channel_from_all_folders(channel_id: str) -> int:
+    """Remove a channel ID from every folder that references it.
+
+    Called when a notification channel is deleted so folders don't keep
+    dangling references. Returns the number of folders updated.
+    """
+    data = _load_folders_data()
+    data = _migrate_legacy_folders(data)
+    folders = [_normalize_folder(dict(f)) for f in data.get("folders", [])]
+
+    updated = 0
+    for f in folders:
+        if channel_id in f["channels"]:
+            f["channels"] = [c for c in f["channels"] if c != channel_id]
+            updated += 1
+
+    if updated > 0:
+        data["folders"] = folders
+        _save_folders_data(data)
+    return updated
 
 
 def is_folder_silenced(name: str) -> bool:
