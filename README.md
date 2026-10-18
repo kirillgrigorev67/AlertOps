@@ -67,6 +67,29 @@ Manage all alert rules in one place. View rule status, edit queries and conditio
 
 ![Alert Rules](assets/screenshots/alert-rules.png)
 
+---
+
+### Authentication & User Management
+AlertOps supports JWT-based authentication with two roles. The default admin credentials are configured via environment variables (default: `admin` / `Admin`).
+
+| Role | Permissions |
+|------|-------------|
+| **user** | Read-only access to all data + edit access to folders assigned by admin |
+| **admin** | Full access: manage all rules, channels, providers, folders, silence, AI generation, cleanup, and user management |
+
+**Folder-based access control:**
+- Admins can assign specific alert rule folders to users via the Users page
+- Users can only create/edit/delete rules within their assigned folders
+- Users can view all data (dashboards, alerts, history) but cannot modify anything outside their assigned folders
+- Clear history is admin-only
+
+- **Login screen** — users must sign in before accessing any data
+- **User management** — admin-only screen to create/deactivate users, assign roles, assign folder access, and reset passwords
+- **Disable auth** — set `AUTH_ENABLED=false` in `.env` to restore open access for local development
+
+
+![Authentication](assets/screenshots/authentication.png)
+
 ## Architecture
 
 ```
@@ -147,6 +170,12 @@ LLM_MODEL=deepseek-chat
 
 # Grafana API Key (optional, for dashboard listing)
 GRAFANA_API_KEY=
+
+# Authentication
+AUTH_ENABLED=true
+AUTH_ADMIN_USERNAME=admin
+AUTH_ADMIN_PASSWORD=Admin
+AUTH_JWT_SECRET=change-this-to-a-random-string
 ```
 
 ### LLM Providers
@@ -337,7 +366,24 @@ Backup is trivial: `tar -czf backup.tar.gz data/`
 
 ## API Reference
 
-The backend exposes a REST API at `http://localhost:8000/api/`. All endpoints return JSON. CORS is enabled, no authentication required.
+The backend exposes a REST API at `http://localhost:8000/api/`. All endpoints return JSON. CORS is enabled. Authentication is required for all endpoints except `/health`, `/api/auth/login`, `/api/auth/status`, and `/api/webhooks/alerts` (for Alertmanager).
+
+### Authentication
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/auth/login` | Authenticate (`{"username": "admin", "password": "Admin"}`) → returns JWT token |
+| `GET` | `/api/auth/me` | Get current user info (requires `Authorization: Bearer <token>`) |
+| `GET` | `/api/auth/status` | Check if authentication is enabled |
+
+### User Management (admin only)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/users` | List all users |
+| `POST` | `/api/users` | Create a user (`{"username": "...", "password": "...", "role": "user", "folders": ["CPU"]}`) — role can be `user` or `admin`; folders is optional for user role |
+| `PUT` | `/api/users/{id}` | Update user role, active status, password, or folder access |
+| `DELETE` | `/api/users/{id}` | Delete a user |
 
 ### Health & Status
 

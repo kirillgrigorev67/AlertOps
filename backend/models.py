@@ -119,3 +119,39 @@ class QueryRangeResponse(BaseModel):
     status: str  # success or error
     error: Optional[str] = None
     series: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class User(BaseModel):
+    id: str
+    username: str
+    password_hash: str
+    role: str  # "admin" or "user"
+    active: bool = True
+    folders: List[str] = Field(default_factory=list)  # folders the user can edit (for user role)
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    role: str
+
+
+class UserCreate(BaseModel):
+    username: str
+    password: str
+    role: str = "user"  # "admin" or "user"
+    folders: List[str] = Field(default_factory=list)  # folders the user can edit
+
+
+class UserUpdate(BaseModel):
+    role: Optional[str] = None
+    active: Optional[bool] = None
+    password: Optional[str] = None  # for password reset
+    folders: Optional[List[str]] = None  # for folder access assignment

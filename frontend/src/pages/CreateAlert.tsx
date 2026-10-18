@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { AlertTriangle, Loader, Check, Wand2, Brain, Folder, FolderPlus, ChevronDown, Search, X } from 'lucide-react'
 import api from '../api/client'
+import { useAuth } from '../components/AuthContext'
 
 interface AlertVariant {
   name: string
@@ -37,6 +38,7 @@ interface FolderInfo {
 export default function CreateAlert() {
   const location = useLocation()
   const navigate = useNavigate()
+  const { user } = useAuth()
   const { panel, dashboardUid } = (location.state as LocationState) || {}
 
   // Standalone mode = no panel from dashboard
@@ -85,7 +87,14 @@ export default function CreateAlert() {
 
   const loadFolders = async () => {
     try {
-      const data = await api.get<FolderInfo[]>('/rules/folders')
+      let data = await api.get<FolderInfo[]>('/rules/folders')
+      
+      // Filter folders for user role - only show assigned folders
+      if (user?.role === 'user') {
+        const assignedFolders = user.folders || []
+        data = data.filter(f => assignedFolders.includes(f.name))
+      }
+      
       setExistingFolders(data)
     } catch (err) {
       console.error('Failed to load folders:', err)
@@ -127,6 +136,12 @@ export default function CreateAlert() {
   const saveAlert = async () => {
     if (!name || !description || !query) {
       setError('Name, description and query are required')
+      return
+    }
+
+    // User role must select a folder
+    if (user?.role === 'user' && !folder.trim()) {
+      setError('Please select a folder')
       return
     }
 
@@ -350,32 +365,34 @@ export default function CreateAlert() {
                   maxHeight: '200px', 
                   overflowY: 'auto',
                 }}>
-                  {/* None option */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setFolder('')
-                      setFolderDropdownOpen(false)
-                      setFolderSearch('')
-                    }}
-                    style={{
-                      width: '100%',
-                      padding: '8px 12px',
-                      border: 'none',
-                      borderBottom: '1px solid var(--border)',
-                      background: folder === '' ? 'rgba(99, 102, 241, 0.1)' : 'transparent',
-                      color: folder === '' ? 'var(--accent-primary)' : 'var(--text-secondary)',
-                      fontSize: '13px',
-                      cursor: 'pointer',
-                      textAlign: 'left',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px',
-                    }}
-                  >
-                    <span style={{ fontStyle: 'italic' }}>None</span>
-                    {folder === '' && <Check size={14} style={{ marginLeft: 'auto' }} />}
-                  </button>
+                  {/* None option - hidden for user role */}
+                  {user?.role !== 'user' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFolder('')
+                        setFolderDropdownOpen(false)
+                        setFolderSearch('')
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '8px 12px',
+                        border: 'none',
+                        borderBottom: '1px solid var(--border)',
+                        background: folder === '' ? 'rgba(99, 102, 241, 0.1)' : 'transparent',
+                        color: folder === '' ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                        fontSize: '13px',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                      }}
+                    >
+                      <span style={{ fontStyle: 'italic' }}>None</span>
+                      {folder === '' && <Check size={14} style={{ marginLeft: 'auto' }} />}
+                    </button>
+                  )}
 
                   {/* Existing folders */}
                   {filteredFolders.length > 0 ? (
@@ -415,7 +432,7 @@ export default function CreateAlert() {
                       color: 'var(--text-muted)',
                       fontSize: '13px',
                     }}>
-                      No folders found. Type to create new.
+                      No folders found.
                     </div>
                   ) : existingFolders.length === 0 ? (
                     <div style={{ 
@@ -424,13 +441,13 @@ export default function CreateAlert() {
                       color: 'var(--text-muted)',
                       fontSize: '13px',
                     }}>
-                      No folders yet. Type to create new.
+                      No folders available.
                     </div>
                   ) : null}
                 </div>
                 
-                {/* Create new folder hint */}
-                {folderSearch.trim() && !existingFolders.some(f => f.name === folderSearch.trim()) && (
+                {/* Create new folder hint - hidden for user role */}
+                {folderSearch.trim() && !existingFolders.some(f => f.name === folderSearch.trim()) && user?.role !== 'user' && (
                   <div style={{ 
                     padding: '8px 12px', 
                     borderTop: '1px solid var(--border)',

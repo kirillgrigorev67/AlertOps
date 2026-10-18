@@ -20,10 +20,15 @@ from models import (
     Dashboard,
     HealthStatus,
     LLMProvider,
+    LoginRequest,
     NotificationChannel,
     Panel,
     QueryRangeRequest,
     QueryRangeResponse,
+    TokenResponse,
+    User,
+    UserCreate,
+    UserUpdate,
 )
 from storage import storage
 from notifiers import BaseNotifier, TelegramNotifier, WebhookNotifier
@@ -35,6 +40,7 @@ from alert_ai_generator import alert_ai_generator
 from diagnosis import diagnosis_service
 from cleanup import cleanup_service
 from webhook_queue import webhook_queue
+import auth as auth_module
 
 def utc_now_iso() -> str:
     """Return current UTC time in ISO 8601 format with 'Z' suffix."""
@@ -703,6 +709,174 @@ async def health_check():
     return {"status": "healthy"}
 
 
+# Authentication endpoints
+@api_router.post("/auth/login")
+async def login(data: LoginRequest):
+    """Authenticate a user and return a JWT token."""
+    if not settings.auth_enabled:
+        return TokenResponse(
+            access_token="disabled",
+            token_type="bearer",
+            role="admin",
+        )
+    
+    if data.username == settings.auth_admin_username:
+        if data.password == settings.auth_admin_password:
+            token = auth_module.create_access_token(data.username, "admin")
+            return TokenResponse(access_token=token, role="admin")
+        else:
+            raise HTTPException(status_code=401, detail="Invalid username or password")
+    
+    user = auth_module.find_user_by_username(data.username)
+    if user and user.get("active", True):
+        if auth_module.verify_password(data.password, user["password_hash"]):
+            token = auth_module.create_access_token(user["username"], user["role"])
+            return TokenResponse(access_token=token, role=user["role"])
+        else:
+            raise HTTPException(status_code=401, detail="Invalid username or password")
+    
+    raise HTTPException(status_code=401, detail="Invalid username or password")
+
+
+@api_router.get("/auth/me")
+async def get_current_user_info(request: Request):
+    """Get the current authenticated user's info including folders."""
+    user = auth_module.get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    # Get folders from storage for non-admin users
+    folders = []
+    if user["role"] == "user":
+        stored_user = auth_module.find_user_by_username(user["username"])
+        if stored_user:
+            folders = stored_user.get("folders", [])
+    
+    return {
+        "username": user["username"],
+        "role": user["role"],
+        "folders": folders,
+    }
+
+
+@api_router.get("/auth/status")
+async def get_auth_status():
+    """Check if authentication is enabled."""
+    return {"enabled": settings.auth_enabled}
+
+
+# User management endpoints (admin only)
+@api_router.get("/users")
+async def list_users(request: Request):
+    """List all users (admin only)."""
+    auth_module.require_admin(request)
+    users = auth_module.list_users()
+    result = []
+    for u in users:
+        result.append({
+            "id": u["id"],
+            "username": u["username"],
+            "role": u["role"],
+            "active": u.get("active", True),
+            "folders": u.get("folders", []),
+            "created_at": u.get("created_at"),
+            "updated_at": u.get("updated_at"),
+        })
+    has_default_admin = any(u["username"] == settings.auth_admin_username for u in result)
+    if not has_default_admin:
+        result.append({
+            "id": "default-admin",
+            "username": settings.auth_admin_username,
+            "role": "admin",
+            "active": True,
+            "folders": [],
+            "created_at": None,
+            "updated_at": None,
+            "is_default": True,
+        })
+    return result
+
+
+@api_router.post("/users")
+async def create_user_endpoint(data: UserCreate, request: Request):
+    """Create a new user (admin only). Creates folders if they don't exist."""
+    auth_module.require_admin(request)
+    if data.role not in ("admin", "user"):
+        raise HTTPException(status_code=400, detail="Invalid role. Must be 'admin' or 'user'")
+    existing = auth_module.find_user_by_username(data.username)
+    if existing:
+        raise HTTPException(status_code=400, detail="Username already exists")
+    if data.username == settings.auth_admin_username:
+        raise HTTPException(status_code=400, detail="Cannot create user with reserved username")
+    
+    # Create any folders that don't exist yet
+    for folder_name in data.folders:
+        folder_name = folder_name.strip()
+        if folder_name:
+            try:
+                folder_manager.create_folder(folder_name)
+            except ValueError:
+                pass  # Folder already exists
+    
+    user = auth_module.create_user(data.username, data.password, data.role, data.folders)
+    return {
+        "id": user["id"],
+        "username": user["username"],
+        "role": user["role"],
+        "active": user["active"],
+        "folders": user.get("folders", []),
+    }
+
+
+@api_router.put("/users/{user_id}")
+async def update_user_endpoint(user_id: str, data: UserUpdate, request: Request):
+    """Update a user's role, active status, password, or folder access (admin only). Creates folders if they don't exist."""
+    admin = auth_module.require_admin(request)
+    if user_id == "default-admin":
+        raise HTTPException(status_code=400, detail="Cannot modify the default admin user")
+    updates = {}
+    if data.role is not None:
+        if data.role not in ("admin", "user"):
+            raise HTTPException(status_code=400, detail="Invalid role. Must be 'admin' or 'user'")
+        updates["role"] = data.role
+    if data.active is not None:
+        updates["active"] = data.active
+    if data.password:
+        updates["password"] = data.password
+    if data.folders is not None:
+        # Create any folders that don't exist yet
+        for folder_name in data.folders:
+            folder_name = folder_name.strip()
+            if folder_name:
+                try:
+                    folder_manager.create_folder(folder_name)
+                except ValueError:
+                    pass  # Folder already exists
+        updates["folders"] = data.folders
+    user = auth_module.update_user(user_id, updates)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {
+        "id": user["id"],
+        "username": user["username"],
+        "role": user["role"],
+        "active": user["active"],
+        "folders": user.get("folders", []),
+    }
+
+
+@api_router.delete("/users/{user_id}")
+async def delete_user_endpoint(user_id: str, request: Request):
+    """Delete a user (admin only)."""
+    admin = auth_module.require_admin(request)
+    if user_id == "default-admin":
+        raise HTTPException(status_code=400, detail="Cannot delete the default admin user")
+    deleted = auth_module.delete_user(user_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"status": "deleted"}
+
+
 @api_router.get("/health/services", response_model=List[HealthStatus])
 async def services_health():
     services = []
@@ -808,18 +982,21 @@ async def services_health():
 
 # Dashboards
 @api_router.get("/dashboards", response_model=List[Dashboard])
-async def list_dashboards():
+async def list_dashboards(request: Request = None):
+    auth_module.require_auth(request)
     return await grafana.get_dashboards()
 
 
 @api_router.get("/dashboards/{uid}/panels", response_model=List[Panel])
-async def get_panels(uid: str):
+async def get_panels(uid: str, request: Request = None):
+    auth_module.require_auth(request)
     return await grafana.get_panels(uid)
 
 
 # Alert Rules
 @api_router.get("/rules", response_model=List[AlertRule])
-async def list_rules(folder: Optional[str] = None):
+async def list_rules(folder: Optional[str] = None, request: Request = None):
+    auth_module.require_auth(request)
     rules = storage.list("rules")
     if folder is not None:
         if folder == "":
@@ -830,13 +1007,14 @@ async def list_rules(folder: Optional[str] = None):
 
 
 @api_router.get("/rules/folders")
-async def list_folders():
+async def list_folders(request: Request = None):
     """Return all folder names, including empty ones."""
+    auth_module.require_auth(request)
     return folder_manager.list_folders()
 
 
 @api_router.post("/rules/folders")
-async def create_folder(data: Dict[str, str]):
+async def create_folder(data: Dict[str, str], request: Request = None):
     """Create a new folder."""
     name = data.get("name", "").strip()
     if not name:
@@ -849,7 +1027,7 @@ async def create_folder(data: Dict[str, str]):
 
 
 @api_router.post("/rules/folders/rename")
-async def rename_folder(data: Dict[str, str]):
+async def rename_folder(data: Dict[str, str], request: Request = None):
     """Rename a folder across all alert rules and the folder list."""
     old_name = data.get("old_name", "").strip()
     new_name = data.get("new_name", "").strip()
@@ -866,7 +1044,7 @@ async def rename_folder(data: Dict[str, str]):
 
 
 @api_router.delete("/rules/folders/{folder_name}")
-async def delete_folder(folder_name: str):
+async def delete_folder(folder_name: str, request: Request = None):
     """Delete a folder. Rules in this folder become uncategorized."""
     try:
         folder_manager.delete_folder(folder_name)
@@ -876,7 +1054,8 @@ async def delete_folder(folder_name: str):
 
 
 @api_router.post("/rules/folders/{folder_name}/silence")
-async def silence_folder(folder_name: str, duration_minutes: int = 60):
+async def silence_folder(folder_name: str, duration_minutes: int = 60, request: Request = None):
+    auth_module.require_admin(request)
     """Silence all alerts in a folder. Duration in minutes, or -1 for indefinite."""
     
     if duration_minutes == -1:
@@ -929,7 +1108,8 @@ async def silence_folder(folder_name: str, duration_minutes: int = 60):
 
 
 @api_router.post("/rules/folders/{folder_name}/unsilence")
-async def unsilence_folder(folder_name: str):
+async def unsilence_folder(folder_name: str, request: Request = None):
+    auth_module.require_admin(request)
     """Unsilence a folder and all alerts within it."""
     folder = folder_manager.set_folder_silenced(folder_name, None)
     
@@ -957,14 +1137,16 @@ async def unsilence_folder(folder_name: str):
 
 
 @api_router.get("/rules/folders/{folder_name}/channels")
-async def get_folder_channels(folder_name: str):
+async def get_folder_channels(folder_name: str, request: Request = None):
     """Return the notification channel IDs assigned to a folder."""
+    auth_module.require_auth(request)
     channels = folder_manager.get_folder_channels(folder_name)
     return {"folder": folder_name, "channels": channels}
 
 
 @api_router.post("/rules/folders/{folder_name}/channels")
-async def set_folder_channels(folder_name: str, data: Dict[str, Any]):
+async def set_folder_channels(folder_name: str, data: Dict[str, Any], request: Request = None):
+    auth_module.require_admin(request)
     """Set the notification channel IDs for a folder.
 
     Body: {"channels": ["channel-id-1", "channel-id-2"]}
@@ -990,7 +1172,8 @@ async def set_folder_channels(folder_name: str, data: Dict[str, Any]):
 
 
 @api_router.post("/rules/{rule_id}/silence")
-async def silence_rule(rule_id: str, duration_minutes: int = 60):
+async def silence_rule(rule_id: str, duration_minutes: int = 60, request: Request = None):
+    auth_module.require_admin(request)
     """Silence a single alert rule. Duration in minutes, or -1 for indefinite."""
     rule = storage.get("rules", rule_id)
     if not rule:
@@ -1033,7 +1216,8 @@ async def silence_rule(rule_id: str, duration_minutes: int = 60):
 
 
 @api_router.post("/rules/{rule_id}/unsilence")
-async def unsilence_rule(rule_id: str):
+async def unsilence_rule(rule_id: str, request: Request = None):
+    auth_module.require_admin(request)
     """Unsilence a single alert rule."""
     rule = storage.get("rules", rule_id)
     if not rule:
@@ -1056,7 +1240,8 @@ async def unsilence_rule(rule_id: str):
 
 
 @api_router.post("/rules", response_model=AlertRule)
-async def create_rule(rule: AlertRule):
+async def create_rule(rule: AlertRule, request: Request = None):
+    auth_module.require_folder_access(request, rule.folder)
     now = utc_now_iso()
     rule.created_at = now
     rule.updated_at = now
@@ -1100,7 +1285,13 @@ async def create_rule(rule: AlertRule):
 
 
 @api_router.delete("/rules/{rule_id}")
-async def delete_rule(rule_id: str):
+async def delete_rule(rule_id: str, request: Request = None):
+    # Check folder access based on the rule's folder
+    rule_data = storage.get("rules", rule_id)
+    if rule_data:
+        auth_module.require_folder_access(request, rule_data.get("folder"))
+    else:
+        auth_module.require_folder_access(request)
     # Get rule to know which type it is for proper file deletion and reload
     rule = storage.get("rules", rule_id)
     
@@ -1137,7 +1328,11 @@ async def delete_rule(rule_id: str):
 
 
 @api_router.put("/rules/{rule_id}", response_model=AlertRule)
-async def update_rule(rule_id: str, rule: AlertRule):
+async def update_rule(rule_id: str, rule: AlertRule, request: Request = None):
+    # Check folder access based on the rule's folder
+    existing_rule = storage.get("rules", rule_id)
+    folder_to_check = existing_rule.get("folder") if existing_rule else rule.folder
+    auth_module.require_folder_access(request, folder_to_check)
     """Update an existing alert rule."""
     existing = storage.get("rules", rule_id)
     if not existing:
@@ -1183,7 +1378,8 @@ async def update_rule(rule_id: str, rule: AlertRule):
 
 # AI Alert Generation
 @api_router.post("/ai/generate-alerts", response_model=List[AlertVariant])
-async def generate_alert_variants(data: Dict[str, Any]):
+async def generate_alert_variants(data: Dict[str, Any], request: Request = None):
+    auth_module.require_admin(request)
     query = data.get("query")
     query_type = data.get("query_type", "promql")
     dashboard_title = data.get("dashboard_title", "")
@@ -1203,7 +1399,8 @@ async def generate_alert_variants(data: Dict[str, Any]):
 
 
 @api_router.post("/validate-query")
-async def validate_query(data: Dict[str, Any]):
+async def validate_query(data: Dict[str, Any], request: Request = None):
+    auth_module.require_admin(request)
     query = data.get("query")
     query_type = data.get("query_type", "promql")
     
@@ -1380,7 +1577,9 @@ async def list_alert_history(
     q: Optional[str] = None,
     start: Optional[str] = None,
     end: Optional[str] = None,
+    request: Request = None,
 ):
+    auth_module.require_auth(request)
     alerts = storage.list("alerts/history")
     
     if q:
@@ -1414,7 +1613,8 @@ async def list_alert_history(
 
 
 @api_router.delete("/alerts/history")
-async def clear_alert_history():
+async def clear_alert_history(request: Request = None):
+    auth_module.require_admin(request)
     """Clear all alert history. Active alerts are preserved."""
     import shutil
     history_dir = os.path.join(settings.data_dir, "alerts", "history")
@@ -1426,19 +1626,22 @@ async def clear_alert_history():
 
 # Active Alerts
 @api_router.get("/alerts", response_model=List[Alert])
-async def list_active_alerts():
+async def list_active_alerts(request: Request = None):
+    auth_module.require_auth(request)
     return storage.list("alerts/active")
 
 
 @api_router.get("/alerts/unread-count")
-async def get_unread_count():
+async def get_unread_count(request: Request = None):
     """Return the number of active alerts."""
+    auth_module.require_auth(request)
     alerts = storage.list("alerts/active")
     return {"unread_count": len(alerts)}
 
 
 @api_router.post("/alerts/mark-all-read")
-async def mark_all_alerts_read():
+async def mark_all_alerts_read(request: Request = None):
+    auth_module.require_editor(request)
     """Mark all active alerts as read."""
     alerts = storage.list("alerts/active")
     count = 0
@@ -1453,7 +1656,8 @@ async def mark_all_alerts_read():
 
 
 @api_router.get("/alerts/{alert_id}", response_model=Alert)
-async def get_alert(alert_id: str):
+async def get_alert(alert_id: str, request: Request = None):
+    auth_module.require_auth(request)
     alert = storage.get("alerts/active", alert_id)
     if not alert:
         # Check history
@@ -1464,7 +1668,8 @@ async def get_alert(alert_id: str):
 
 
 @api_router.post("/alerts/{alert_id}/read")
-async def mark_alert_read(alert_id: str):
+async def mark_alert_read(alert_id: str, request: Request = None):
+    auth_module.require_editor(request)
     """Mark a single alert as read."""
     alert = storage.get("alerts/active", alert_id)
     if not alert:
@@ -1478,7 +1683,8 @@ async def mark_alert_read(alert_id: str):
 
 
 @api_router.post("/alerts/{alert_id}/force-resolve")
-async def force_resolve_alert(alert_id: str):
+async def force_resolve_alert(alert_id: str, request: Request = None):
+    auth_module.require_editor(request)
     """Force move an alert to history immediately. Use when Alertmanager resolved webhook was lost."""
     alert = storage.get("alerts/active", alert_id)
     if not alert:
@@ -1501,8 +1707,9 @@ async def force_resolve_alert(alert_id: str):
 
 
 @api_router.get("/webhooks/queue")
-async def get_webhook_queue():
+async def get_webhook_queue(request: Request = None):
     """Get pending resolved alerts from persistent queue (for debugging)."""
+    auth_module.require_auth(request)
     pending = webhook_queue.list_pending()
     return {
         "pending_count": len(pending),
@@ -1512,12 +1719,14 @@ async def get_webhook_queue():
 
 # Notification Channels
 @api_router.get("/notification-channels", response_model=List[NotificationChannel])
-async def list_notification_channels():
+async def list_notification_channels(request: Request = None):
+    auth_module.require_auth(request)
     return storage.list("notification_channels")
 
 
 @api_router.post("/notification-channels", response_model=NotificationChannel)
-async def create_notification_channel(channel: NotificationChannel):
+async def create_notification_channel(channel: NotificationChannel, request: Request = None):
+    auth_module.require_admin(request)
     if not channel.id:
         channel.id = str(uuid.uuid4())
     now = utc_now_iso()
@@ -1528,7 +1737,8 @@ async def create_notification_channel(channel: NotificationChannel):
 
 
 @api_router.put("/notification-channels/{channel_id}", response_model=NotificationChannel)
-async def update_notification_channel(channel_id: str, channel: NotificationChannel):
+async def update_notification_channel(channel_id: str, channel: NotificationChannel, request: Request = None):
+    auth_module.require_admin(request)
     existing = storage.get("notification_channels", channel_id)
     if not existing:
         raise HTTPException(status_code=404, detail="Channel not found")
@@ -1541,7 +1751,8 @@ async def update_notification_channel(channel_id: str, channel: NotificationChan
 
 
 @api_router.delete("/notification-channels/{channel_id}")
-async def delete_notification_channel(channel_id: str):
+async def delete_notification_channel(channel_id: str, request: Request = None):
+    auth_module.require_admin(request)
     existing = storage.get("notification_channels", channel_id)
     if not existing:
         raise HTTPException(status_code=404, detail="Channel not found")
@@ -1562,7 +1773,8 @@ async def delete_notification_channel(channel_id: str):
 
 
 @api_router.post("/notification-channels/{channel_id}/test")
-async def test_notification_channel(channel_id: str):
+async def test_notification_channel(channel_id: str, request: Request = None):
+    auth_module.require_admin(request)
     """Test notification channel by sending a test alert."""
     channel_data = storage.get("notification_channels", channel_id)
     if not channel_data:
@@ -1603,12 +1815,14 @@ async def test_notification_channel(channel_id: str):
 
 # LLM Providers
 @api_router.get("/providers", response_model=List[LLMProvider])
-async def list_providers():
+async def list_providers(request: Request = None):
+    auth_module.require_auth(request)
     return storage.list("providers")
 
 
 @api_router.post("/providers", response_model=LLMProvider)
-async def create_provider(provider: LLMProvider):
+async def create_provider(provider: LLMProvider, request: Request = None):
+    auth_module.require_admin(request)
     now = utc_now_iso()
     provider.created_at = now
     
@@ -1625,7 +1839,8 @@ async def create_provider(provider: LLMProvider):
 
 
 @api_router.put("/providers/{provider_id}", response_model=LLMProvider)
-async def update_provider(provider_id: str, provider: LLMProvider):
+async def update_provider(provider_id: str, provider: LLMProvider, request: Request = None):
+    auth_module.require_admin(request)
     """Update an existing LLM provider."""
     if provider_id == "demo-default":
         raise HTTPException(status_code=403, detail="Cannot edit the built-in Demo provider")
@@ -1651,7 +1866,8 @@ async def update_provider(provider_id: str, provider: LLMProvider):
 
 
 @api_router.delete("/providers/{provider_id}")
-async def delete_provider(provider_id: str):
+async def delete_provider(provider_id: str, request: Request = None):
+    auth_module.require_admin(request)
     if provider_id == "demo-default":
         raise HTTPException(status_code=403, detail="Cannot delete the built-in Demo provider")
     
@@ -1660,7 +1876,8 @@ async def delete_provider(provider_id: str):
 
 
 @api_router.post("/providers/{provider_id}/default")
-async def set_default_provider(provider_id: str):
+async def set_default_provider(provider_id: str, request: Request = None):
+    auth_module.require_admin(request)
     provider = storage.get("providers", provider_id)
     if not provider:
         raise HTTPException(status_code=404, detail="Provider not found")
@@ -1679,7 +1896,8 @@ async def set_default_provider(provider_id: str):
 
 
 @api_router.post("/providers/{provider_id}/test")
-async def test_provider(provider_id: str):
+async def test_provider(provider_id: str, request: Request = None):
+    auth_module.require_admin(request)
     """Test LLM provider connectivity by making a minimal API call."""
     provider_data = storage.get("providers", provider_id)
     if not provider_data:
@@ -1750,7 +1968,8 @@ async def grafana_solo_proxy(uid: str, slug: str, request: Request):
 
 
 @api_router.post("/query-range", response_model=QueryRangeResponse)
-async def query_range(req: QueryRangeRequest):
+async def query_range(req: QueryRangeRequest, request: Request = None):
+    auth_module.require_auth(request)
     """
     Execute a range query against Prometheus or Loki and return time-series data for charting.
     """
@@ -1830,20 +2049,23 @@ async def query_range(req: QueryRangeRequest):
 
 # Cleanup endpoints
 @api_router.post("/cleanup/run")
-async def run_cleanup(dry_run: bool = False):
+async def run_cleanup(dry_run: bool = False, request: Request = None):
+    auth_module.require_admin(request)
     """Manually trigger alert history cleanup."""
     return cleanup_service.run_cleanup(dry_run=dry_run)
 
 
 @api_router.get("/cleanup/logs")
-async def get_cleanup_logs(limit: int = 100):
+async def get_cleanup_logs(limit: int = 100, request: Request = None):
     """Get recent cleanup operation logs."""
+    auth_module.require_auth(request)
     return {"logs": cleanup_service.get_logs(limit)}
 
 
 @api_router.get("/cleanup/config")
-async def get_cleanup_config():
+async def get_cleanup_config(request: Request = None):
     """Get current cleanup configuration."""
+    auth_module.require_auth(request)
     return {
         "retention_days": settings.alert_history_retention_days,
         "action": settings.alert_history_cleanup_action,
@@ -1852,8 +2074,9 @@ async def get_cleanup_config():
 
 
 @api_router.get("/cleanup/archives")
-async def get_archives():
+async def get_archives(request: Request = None):
     """Get information about archived alert history."""
+    auth_module.require_auth(request)
     return cleanup_service.get_archive_info()
 
 

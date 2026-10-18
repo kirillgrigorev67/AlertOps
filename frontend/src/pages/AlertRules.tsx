@@ -27,6 +27,7 @@ import {
 import api from '../api/client'
 import ConfirmModal from '../components/ConfirmModal'
 import ChannelSelectDropdown from '../components/ChannelSelectDropdown'
+import { useAuth } from '../components/AuthContext'
 
 interface AlertRule {
   id: string
@@ -82,6 +83,7 @@ const SILENCE_DURATION_OPTIONS = [
 ]
 
 export default function AlertRules() {
+  const { user, canEditFolder } = useAuth()
   const [rules, setRules] = useState<AlertRule[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -151,12 +153,19 @@ export default function AlertRules() {
     loadRules()
     loadFolders()
     loadNotificationChannels()
-  }, [])
+  }, [user])
 
   const loadRules = async () => {
     try {
       setLoading(true)
-      const data = await api.get<AlertRule[]>('/rules')
+      let data = await api.get<AlertRule[]>('/rules')
+      
+      // Filter rules for user role - only show rules from assigned folders
+      if (user?.role === 'user') {
+        const assignedFolders = user.folders || []
+        data = data.filter(rule => rule.folder && assignedFolders.includes(rule.folder))
+      }
+      
       setRules(data)
       setError('')
     } catch (err) {
@@ -170,8 +179,16 @@ export default function AlertRules() {
   const loadFolders = async () => {
     try {
       const data = await api.get<FolderInfo[]>('/rules/folders')
-      setExistingFolders(data.map(f => f.name))
-      setFolders(data)
+      
+      // Filter folders for user role - only show assigned folders
+      let filteredData = data
+      if (user?.role === 'user') {
+        const assignedFolders = user.folders || []
+        filteredData = data.filter(f => assignedFolders.includes(f.name))
+      }
+      
+      setExistingFolders(filteredData.map(f => f.name))
+      setFolders(filteredData)
     } catch (err) {
       console.error('Failed to load folders:', err)
     }
@@ -629,10 +646,12 @@ export default function AlertRules() {
               }}
             />
           </div>
-          <Link to="/create-alert" className="btn btn-primary">
-            <Plus size={18} />
-            Create Rule
-          </Link>
+          {(user?.role === 'admin' || (user?.role === 'user' && (user.folders?.length ?? 0) > 0)) && (
+            <Link to="/create-alert" className="btn btn-primary">
+              <Plus size={18} />
+              Create Rule
+            </Link>
+          )}
         </div>
       </div>
 
@@ -689,19 +708,21 @@ export default function AlertRules() {
           </select>
         </div>
 
-        <button
-          onClick={() => {
-            setNewFolderName('')
-            setFolderActionError('')
-            setCreateFolderModalOpen(true)
-          }}
-          className="btn btn-secondary"
-          style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', padding: '8px 12px' }}
-          title="Create new folder"
-        >
-          <FolderPlus size={16} />
-          New Folder
-        </button>
+        {canEditFolder(null) && (
+          <button
+            onClick={() => {
+              setNewFolderName('')
+              setFolderActionError('')
+              setCreateFolderModalOpen(true)
+            }}
+            className="btn btn-secondary"
+            style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', padding: '8px 12px' }}
+            title="Create new folder"
+          >
+            <FolderPlus size={16} />
+            New Folder
+          </button>
+        )}
       </div>
 
       <div style={{ marginBottom: '16px', color: 'var(--text-muted)', fontSize: '14px' }}>
@@ -723,7 +744,7 @@ export default function AlertRules() {
         </div>
       ) : (
         <div className="alert-list">
-          {rulesWithoutFolder.length > 0 && (
+          {user?.role !== 'user' && rulesWithoutFolder.length > 0 && (
             <div
               style={{
                 display: 'flex',
@@ -795,44 +816,46 @@ export default function AlertRules() {
                       )}
                     </div>
 
-                    <div style={{ display: 'flex', gap: '4px', marginLeft: '8px', flexShrink: 0 }}>
-                      {isSilenced(rule.silenced_until) ? (
+                    {canEditFolder(rule.folder || null) && (
+                      <div style={{ display: 'flex', gap: '4px', marginLeft: '8px', flexShrink: 0 }}>
+                        {isSilenced(rule.silenced_until) ? (
+                          <button
+                            onClick={() => handleUnsilence('rule', rule.id)}
+                            className="btn btn-secondary"
+                            style={{ padding: '6px', color: '#f59e0b' }}
+                            title="Unsilence rule"
+                          >
+                            <BellRing size={16} />
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => openSilenceModal('rule', rule.id, rule.name)}
+                            className="btn btn-secondary"
+                            style={{ padding: '6px' }}
+                            title="Silence rule"
+                          >
+                            <BellOff size={16} />
+                          </button>
+                        )}
                         <button
-                          onClick={() => handleUnsilence('rule', rule.id)}
-                          className="btn btn-secondary"
-                          style={{ padding: '6px', color: '#f59e0b' }}
-                          title="Unsilence rule"
-                        >
-                          <BellRing size={16} />
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => openSilenceModal('rule', rule.id, rule.name)}
+                          onClick={() => openEditModal(rule)}
                           className="btn btn-secondary"
                           style={{ padding: '6px' }}
-                          title="Silence rule"
+                          title="Edit rule"
                         >
-                          <BellOff size={16} />
+                          <Edit2 size={16} />
                         </button>
-                      )}
-                      <button
-                        onClick={() => openEditModal(rule)}
-                        className="btn btn-secondary"
-                        style={{ padding: '6px' }}
-                        title="Edit rule"
-                      >
-                        <Edit2 size={16} />
-                      </button>
 
-                      <button
-                        onClick={() => openDeleteConfirm(rule.id)}
-                        className="btn btn-secondary"
-                        style={{ padding: '6px', color: '#ef4444' }}
-                        title="Delete rule"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
+                        <button
+                          onClick={() => openDeleteConfirm(rule.id)}
+                          className="btn btn-secondary"
+                          style={{ padding: '6px', color: '#ef4444' }}
+                          title="Delete rule"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   {rule.description && (
@@ -1002,7 +1025,7 @@ export default function AlertRules() {
                   {groupedRules[folderKey].length}
                 </span>
 
-                {editingFolderName !== folderKey && (
+                {canEditFolder(folderKey) && editingFolderName !== folderKey && (
                   <div style={{ display: 'flex', gap: '4px', marginLeft: '4px' }}>
                     {folderSilenced ? (
                       <button
@@ -1132,44 +1155,46 @@ export default function AlertRules() {
                           )}
                         </div>
 
-                        <div style={{ display: 'flex', gap: '4px', marginLeft: '8px', flexShrink: 0 }}>
-                          {isSilenced(rule.silenced_until) ? (
+                        {canEditFolder(rule.folder || null) && (
+                          <div style={{ display: 'flex', gap: '4px', marginLeft: '8px', flexShrink: 0 }}>
+                            {isSilenced(rule.silenced_until) ? (
+                              <button
+                                onClick={() => handleUnsilence('rule', rule.id)}
+                                className="btn btn-secondary"
+                                style={{ padding: '6px', color: '#f59e0b' }}
+                                title="Unsilence rule"
+                              >
+                                <BellRing size={16} />
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => openSilenceModal('rule', rule.id, rule.name)}
+                                className="btn btn-secondary"
+                                style={{ padding: '6px' }}
+                                title="Silence rule"
+                              >
+                                <BellOff size={16} />
+                              </button>
+                            )}
                             <button
-                              onClick={() => handleUnsilence('rule', rule.id)}
-                              className="btn btn-secondary"
-                              style={{ padding: '6px', color: '#f59e0b' }}
-                              title="Unsilence rule"
-                            >
-                              <BellRing size={16} />
-                            </button>
-                          ) : (
-                            <button
-                              onClick={() => openSilenceModal('rule', rule.id, rule.name)}
+                              onClick={() => openEditModal(rule)}
                               className="btn btn-secondary"
                               style={{ padding: '6px' }}
-                              title="Silence rule"
+                              title="Edit rule"
                             >
-                              <BellOff size={16} />
+                              <Edit2 size={16} />
                             </button>
-                          )}
-                          <button
-                            onClick={() => openEditModal(rule)}
-                            className="btn btn-secondary"
-                            style={{ padding: '6px' }}
-                            title="Edit rule"
-                          >
-                            <Edit2 size={16} />
-                          </button>
 
-                          <button
-                            onClick={() => openDeleteConfirm(rule.id)}
-                            className="btn btn-secondary"
-                            style={{ padding: '6px', color: '#ef4444' }}
-                            title="Delete rule"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </div>
+                            <button
+                              onClick={() => openDeleteConfirm(rule.id)}
+                              className="btn btn-secondary"
+                              style={{ padding: '6px', color: '#ef4444' }}
+                              title="Delete rule"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
+                        )}
                       </div>
 
                       {rule.description && (
@@ -1782,28 +1807,30 @@ export default function AlertRules() {
                       />
                     </div>
 
-                    <div
-                      onClick={() => {
-                        setEditFolder('')
-                        setFolderDropdownOpen(false)
-                        setFolderSearch('')
-                      }}
-                      style={{
-                        padding: '8px 12px',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        borderBottom: '1px solid var(--border)',
-                        background: editFolder === '' ? 'rgba(99, 102, 241, 0.1)' : 'transparent',
-                      }}
-                    >
-                      <span style={{ color: 'var(--text-muted)', fontSize: '13px' }}>None</span>
+                    {user?.role !== 'user' && (
+                      <div
+                        onClick={() => {
+                          setEditFolder('')
+                          setFolderDropdownOpen(false)
+                          setFolderSearch('')
+                        }}
+                        style={{
+                          padding: '8px 12px',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          borderBottom: '1px solid var(--border)',
+                          background: editFolder === '' ? 'rgba(99, 102, 241, 0.1)' : 'transparent',
+                        }}
+                      >
+                        <span style={{ color: 'var(--text-muted)', fontSize: '13px' }}>None</span>
 
-                      {editFolder === '' && (
-                        <Check size={14} color="var(--accent-primary)" style={{ marginLeft: 'auto' }} />
-                      )}
-                    </div>
+                        {editFolder === '' && (
+                          <Check size={14} color="var(--accent-primary)" style={{ marginLeft: 'auto' }} />
+                        )}
+                      </div>
+                    )}
 
                     <div>
                       {folders
@@ -1842,7 +1869,7 @@ export default function AlertRules() {
                         )}
                     </div>
 
-                    {folderSearch.trim() && !folders.some(f => f.name === folderSearch.trim()) && (
+                    {folderSearch.trim() && !folders.some(f => f.name === folderSearch.trim()) && user?.role !== 'user' && (
                       <div
                         style={{
                           padding: '8px 12px',

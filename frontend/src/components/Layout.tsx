@@ -9,10 +9,13 @@ import {
   ShieldAlert,
   Sun,
   Moon,
-  Radio
+  Radio,
+  LogOut,
+  User as UserIcon
 } from 'lucide-react'
 import ServiceStatus from './ServiceStatus'
 import { useTheme } from './ThemeContext'
+import { useAuth } from './AuthContext'
 import api from '../api/client'
 
 interface LayoutProps {
@@ -22,6 +25,7 @@ interface LayoutProps {
 export default function Layout({ children }: LayoutProps) {
   const [unreadCount, setUnreadCount] = useState(0)
   const { theme, toggleTheme } = useTheme()
+  const { user, logout, isAdmin, authEnabled } = useAuth()
 
   useEffect(() => {
     const fetchUnread = async () => {
@@ -124,15 +128,57 @@ export default function Layout({ children }: LayoutProps) {
             <History size={20} />
             History
           </NavLink>
-          <NavLink to="/channels" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-            <Radio size={20} />
-            Channels
-          </NavLink>
-          <NavLink to="/providers" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-            <Settings size={20} />
-            LLM Providers
-          </NavLink>
+          {isAdmin && (
+            <>
+              <NavLink to="/channels" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+                <Radio size={20} />
+                Channels
+              </NavLink>
+              <NavLink to="/providers" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+                <Settings size={20} />
+                LLM Providers
+              </NavLink>
+              {authEnabled && (
+                <NavLink to="/users" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+                  <UserIcon size={20} />
+                  Users
+                </NavLink>
+              )}
+            </>
+          )}
         </nav>
+
+        {authEnabled && user && (
+          <div style={{
+            marginTop: 'auto',
+            padding: '12px 20px',
+            borderTop: '1px solid var(--border-color)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <UserIcon size={16} color="var(--text-secondary)" />
+              <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                {user.username}
+                <span style={{ marginLeft: '6px', fontSize: '11px', opacity: 0.7 }}>({user.role})</span>
+              </span>
+            </div>
+            <button
+              onClick={logout}
+              title="Sign out"
+              style={{
+                padding: '4px',
+                borderRadius: 'var(--radius-sm)',
+                color: 'var(--text-secondary)',
+                display: 'flex',
+                alignItems: 'center',
+              }}
+            >
+              <LogOut size={16} />
+            </button>
+          </div>
+        )}
       </aside>
       
       <main className="main-content">

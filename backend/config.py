@@ -24,6 +24,13 @@ class Settings(BaseSettings):
     alert_history_retention_days: int = 90
     alert_history_cleanup_action: str = "delete"  # "delete" or "archive"
 
+    # Authentication settings
+    auth_enabled: bool = True
+    auth_admin_username: str = "admin"
+    auth_admin_password: str = "Admin"
+    auth_jwt_secret: str = "alertops-secret-change-me"
+    auth_jwt_expiration_hours: int = 24
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

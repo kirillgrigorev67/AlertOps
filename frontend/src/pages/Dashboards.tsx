@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { LayoutDashboard, ChevronRight, AlertTriangle, RefreshCw, Search } from 'lucide-react'
 import api from '../api/client'
+import { useAuth } from '../components/AuthContext'
 
 interface Dashboard {
   uid: string
@@ -20,6 +21,7 @@ interface Panel {
 }
 
 export default function Dashboards() {
+  const { user } = useAuth()
   const [dashboards, setDashboards] = useState<Dashboard[]>([])
   const [panels, setPanels] = useState<Panel[]>([])
   const [selectedDashboard, setSelectedDashboard] = useState<string | null>(null)
@@ -254,14 +256,16 @@ export default function Dashboards() {
                   </div>
                 )}
 
-                <button
-                  className="btn btn-primary"
-                  style={{ width: '100%' }}
-                  onClick={() => createAlert(panel)}
-                  disabled={panel.multiple_queries || !panel.query}
-                >
-                  Create Alert
-                </button>
+                {(user?.role === 'admin' || (user?.role === 'user' && (user.folders?.length ?? 0) > 0)) && (
+                  <button
+                    className="btn btn-primary"
+                    style={{ width: '100%' }}
+                    onClick={() => createAlert(panel)}
+                    disabled={panel.multiple_queries || !panel.query}
+                  >
+                    Create Alert
+                  </button>
+                )}
               </div>
             ))}
           </div>

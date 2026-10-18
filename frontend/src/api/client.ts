@@ -1,16 +1,42 @@
 const API_BASE = '/api'
 
+function getToken(): string | null {
+  return localStorage.getItem('alertops_token')
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  }
+  
+  const token = getToken()
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`
+  }
+  
   const response = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers: {
-      'Content-Type': 'application/json',
+      ...headers,
       ...options?.headers,
     },
   })
   
+  if (response.status === 401) {
+    // Token expired or invalid — clear and redirect to login
+    localStorage.removeItem('alertops_token')
+    localStorage.removeItem('alertops_user')
+    window.location.href = '/login'
+    throw new Error('Session expired')
+  }
+  
   if (!response.ok) {
-    throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+    let detail = response.statusText
+    try {
+      const err = await response.json()
+      detail = err.detail || detail
+    } catch {}
+    throw new Error(`HTTP ${response.status}: ${detail}`)
   }
   
   return response.json()
@@ -24,6 +50,17 @@ export interface NotificationChannel {
   config: Record<string, any>;
   created_at?: string;
   updated_at?: string;
+}
+
+export interface User {
+  id: string;
+  username: string;
+  role: "admin" | "user";
+  active: boolean;
+  folders: string[];
+  created_at?: string;
+  updated_at?: string;
+  is_default?: boolean;
 }
 
 export const api = {
@@ -43,6 +80,27 @@ export const api = {
   
   delete: <T>(path: string) => 
     request<T>(path, { method: 'DELETE' }),
+  
+  // Auth
+  auth: {
+    login: (username: string, password: string) => 
+      request<{ access_token: string; token_type: string; role: string }>('/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ username, password }),
+      }),
+    me: () => request<{ username: string; role: string; folders?: string[] }>('/auth/me'),
+    status: () => request<{ enabled: boolean }>('/auth/status'),
+  },
+  
+  // Users (admin only)
+  users: {
+    list: () => request<User[]>('/users'),
+    create: (data: { username: string; password: string; role: string; folders?: string[] }) => 
+      request<User>('/users', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: string, data: { role?: string; active?: boolean; password?: string; folders?: string[] }) => 
+      request<User>(`/users/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    delete: (id: string) => request<{ status: string }>(`/users/${id}`, { method: 'DELETE' }),
+  },
   
   // Notification Channels
   channels: {

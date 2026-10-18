@@ -126,6 +126,10 @@ services:
       - LLM_API_KEY=${LLM_API_KEY:-}
       - LLM_BASE_URL=${LLM_BASE_URL:-https://api.deepseek.com/v1}
       - LLM_MODEL=${LLM_MODEL:-deepseek-chat}
+      - AUTH_ENABLED=${AUTH_ENABLED:-true}
+      - AUTH_ADMIN_USERNAME=${AUTH_ADMIN_USERNAME:-admin}
+      - AUTH_ADMIN_PASSWORD=${AUTH_ADMIN_PASSWORD:-Admin}
+      - AUTH_JWT_SECRET=${AUTH_JWT_SECRET:-alertops-secret-change-me}
     volumes:
       - ./backend:/app
       - ./data/backend:/app/data

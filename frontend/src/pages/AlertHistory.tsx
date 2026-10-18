@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { History, Search, AlertCircle, Trash2, Folder, VolumeX } from 'lucide-react'
 import api from '../api/client'
 import ConfirmModal from '../components/ConfirmModal'
+import { useAuth } from '../components/AuthContext'
 
 interface Alert {
   id: string
@@ -25,6 +26,7 @@ interface FolderInfo {
 }
 
 export default function AlertHistory() {
+  const { isAdmin } = useAuth()
   const [alerts, setAlerts] = useState<Alert[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -131,7 +133,7 @@ export default function AlertHistory() {
               }}
             />
           </div>
-          {alerts.length > 0 && (
+          {isAdmin && alerts.length > 0 && (
             <button
               className="btn btn-secondary"
               onClick={openClearConfirm}
