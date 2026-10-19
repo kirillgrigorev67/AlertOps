@@ -98,6 +98,14 @@ AlertOps supports JWT-based authentication with two roles. The default admin cre
 
 ![Authentication](assets/screenshots/authentication.png)
 
+---
+
+### Users
+Admin-only page to manage users. Create, edit, delete users, change roles, assign folder access, reset passwords, and search by name. All edits are done via a unified modal.
+
+
+![Users](assets/screenshots/users.png)
+
 ## Architecture
 
 ```
