@@ -13,6 +13,7 @@ interface ChannelSelectDropdownProps {
   onChange: (selectedIds: string[]) => void
   label?: string
   placeholder?: string
+  readOnly?: boolean
 }
 
 export default function ChannelSelectDropdown({
@@ -21,6 +22,7 @@ export default function ChannelSelectDropdown({
   onChange,
   label = 'Notify via',
   placeholder = 'Search channels...',
+  readOnly = false,
 }: ChannelSelectDropdownProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -82,7 +84,7 @@ export default function ChannelSelectDropdown({
 
       {/* Selected tags + dropdown trigger */}
       <div
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => !readOnly && setIsOpen(!isOpen)}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -91,10 +93,11 @@ export default function ChannelSelectDropdown({
           borderRadius: 'var(--radius-sm)',
           border: '1px solid var(--border)',
           background: 'var(--surface)',
-          cursor: 'pointer',
+          cursor: readOnly ? 'default' : 'pointer',
           minHeight: '40px',
           flexWrap: 'wrap',
           gap: '6px',
+          opacity: readOnly ? 0.7 : 1,
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', flex: 1 }}>
@@ -128,11 +131,13 @@ export default function ChannelSelectDropdown({
                     {getChannelIcon(ch.channel_type)}
                   </span>
                   {ch.name}
-                  <X
-                    size={12}
-                    style={{ cursor: 'pointer', opacity: 0.7 }}
-                    onClick={(e) => removeChannel(ch.id, e)}
-                  />
+                  {!readOnly && (
+                    <X
+                      size={12}
+                      style={{ cursor: 'pointer', opacity: 0.7 }}
+                      onClick={(e) => removeChannel(ch.id, e)}
+                    />
+                  )}
                 </span>
               )
             })

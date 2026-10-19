@@ -84,6 +84,7 @@ const SILENCE_DURATION_OPTIONS = [
 
 export default function AlertRules() {
   const { user, canEditFolder } = useAuth()
+  const isAdmin = user?.role === 'admin'
   const [rules, setRules] = useState<AlertRule[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -1052,18 +1053,20 @@ export default function AlertRules() {
                         <BellOff size={14} />
                       </button>
                     )}
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setEditFolderNameValue(folderKey)
-                        setEditingFolderName(folderKey)
-                      }}
-                      className="btn btn-secondary"
-                      style={{ padding: '4px', opacity: 0.6 }}
-                      title="Rename folder"
-                    >
-                      <Edit2 size={14} />
-                    </button>
+                    {isAdmin && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setEditFolderNameValue(folderKey)
+                          setEditingFolderName(folderKey)
+                        }}
+                        className="btn btn-secondary"
+                        style={{ padding: '4px', opacity: 0.6 }}
+                        title="Rename folder"
+                      >
+                        <Edit2 size={14} />
+                      </button>
+                    )}
                     <button
                       onClick={(e) => {
                         e.stopPropagation()
@@ -1071,21 +1074,23 @@ export default function AlertRules() {
                       }}
                       className="btn btn-secondary"
                       style={{ padding: '4px', opacity: 0.6 }}
-                      title="Manage folder notification channels"
+                      title={isAdmin ? "Manage folder notification channels" : "View folder notification channels"}
                     >
                       <Radio size={14} />
                     </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        openDeleteFolderConfirm(folderKey)
-                      }}
-                      className="btn btn-secondary"
-                      style={{ padding: '4px', color: '#ef4444', opacity: 0.6 }}
-                      title="Delete folder"
-                    >
-                      <Trash2 size={14} />
-                    </button>
+                    {isAdmin && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          openDeleteFolderConfirm(folderKey)
+                        }}
+                        className="btn btn-secondary"
+                        style={{ padding: '4px', color: '#ef4444', opacity: 0.6 }}
+                        title="Delete folder"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -1584,36 +1589,45 @@ export default function AlertRules() {
                   selectedIds={folderChannelsSelected}
                   onChange={setFolderChannelsSelected}
                   label="Notification Channels"
+                  readOnly={!isAdmin}
                 />
               ) : (
                 <div style={{ padding: '12px', color: 'var(--text-muted)', fontSize: '13px', textAlign: 'center' }}>
-                  No notification channels available. Create channels first in the Channels page.
+                  No notification channels assigned to this folder.
                 </div>
               )}
             </div>
 
-            <div className="modal-footer">
-              <button onClick={closeFolderChannelsModal} className="btn btn-secondary">
-                Cancel
-              </button>
-              <button
-                onClick={saveFolderChannels}
-                className="btn btn-primary"
-                disabled={folderChannelsLoading}
-              >
-                {folderChannelsLoading ? (
-                  <>
-                    <Loader size={16} className="spinner" />
-                    Saving...
-                  </>
-                ) : (
-                  <>
-                    <Save size={16} />
-                    Save Channels
-                  </>
-                )}
-              </button>
-            </div>
+            {isAdmin ? (
+              <div className="modal-footer">
+                <button onClick={closeFolderChannelsModal} className="btn btn-secondary">
+                  Cancel
+                </button>
+                <button
+                  onClick={saveFolderChannels}
+                  className="btn btn-primary"
+                  disabled={folderChannelsLoading}
+                >
+                  {folderChannelsLoading ? (
+                    <>
+                      <Loader size={16} className="spinner" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Save size={16} />
+                      Save Channels
+                    </>
+                  )}
+                </button>
+              </div>
+            ) : (
+              <div className="modal-footer">
+                <button onClick={closeFolderChannelsModal} className="btn btn-primary">
+                  Close
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
