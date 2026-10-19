@@ -338,6 +338,25 @@ input:focus, textarea:focus, select:focus {
   animation: modalIn 0.2s ease;
   width: 560px;
   max-width: 90vw;
+  scrollbar-width: thin;
+  scrollbar-color: var(--bg-tertiary) transparent;
+}
+
+.modal::-webkit-scrollbar {
+  width: 8px;
+}
+
+.modal::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.modal::-webkit-scrollbar-thumb {
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+}
+
+.modal::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
 }
 
 @keyframes modalIn {
