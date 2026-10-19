@@ -83,9 +83,17 @@ AlertOps supports JWT-based authentication with two roles. The default admin cre
 - Users can view all data (dashboards, alerts, history) but cannot modify anything outside their assigned folders
 - Clear history is admin-only
 
-- **Login screen** — users must sign in before accessing any data
-- **User management** — admin-only screen to create/deactivate users, assign roles, assign folder access, and reset passwords
-- **Disable auth** — set `AUTH_ENABLED=false` in `.env` to restore open access for local development
+**User permissions:**
+- **user role**: read-only everywhere + full edit (create/update/delete rules) only in assigned folders; can silence/unsilence their folders and view folder channels (read-only); cannot rename/delete folders or change folder channels
+- **admin role**: full access to everything including user management, folder management, channel assignment, and cleanup
+
+**User management features:**
+- Create, edit, delete users (except default admin)
+- Change username, role, active status, and folder assignments via a unified edit modal
+- Reset passwords
+- Search users by name
+
+**Disable auth** — set `AUTH_ENABLED=false` in `.env` to restore open access for local development
 
 
 ![Authentication](assets/screenshots/authentication.png)
@@ -148,7 +156,7 @@ docker compose up -d
 
 | Service | URL | Default Credentials |
 |---------|-----|---------------------|
-| AlertOps UI | http://localhost:8080 | none (open access) |
+| AlertOps UI | http://localhost:8080 | admin / Admin |
 | Grafana | http://localhost:3000 | admin / admin |
 | Prometheus | http://localhost:9090 | none |
 | Alertmanager | http://localhost:9093 | none |
@@ -382,7 +390,7 @@ The backend exposes a REST API at `http://localhost:8000/api/`. All endpoints re
 |--------|----------|-------------|
 | `GET` | `/api/users` | List all users |
 | `POST` | `/api/users` | Create a user (`{"username": "...", "password": "...", "role": "user", "folders": ["CPU"]}`) — role can be `user` or `admin`; folders is optional for user role |
-| `PUT` | `/api/users/{id}` | Update user role, active status, password, or folder access |
+| `PUT` | `/api/users/{id}` | Update username, role, active status, password, or folder access |
 | `DELETE` | `/api/users/{id}` | Delete a user |
 
 ### Health & Status
