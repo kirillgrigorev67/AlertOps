@@ -1585,8 +1585,13 @@ async def list_alert_history(
     end: Optional[str] = None,
     request: Request = None,
 ):
-    auth_module.require_auth(request)
+    user = auth_module.require_auth(request)
     alerts = storage.list("alerts/history")
+    
+    # Filter alerts for user role - only show alerts from assigned folders
+    if user["role"] == "user":
+        user_folders = user.get("folders", [])
+        alerts = [a for a in alerts if a.get("folder") in user_folders]
     
     if q:
         alerts = [
@@ -1633,15 +1638,28 @@ async def clear_alert_history(request: Request = None):
 # Active Alerts
 @api_router.get("/alerts", response_model=List[Alert])
 async def list_active_alerts(request: Request = None):
-    auth_module.require_auth(request)
-    return storage.list("alerts/active")
+    user = auth_module.require_auth(request)
+    alerts = storage.list("alerts/active")
+    
+    # Filter alerts for user role - only show alerts from assigned folders
+    if user["role"] == "user":
+        user_folders = user.get("folders", [])
+        alerts = [a for a in alerts if a.get("folder") in user_folders]
+    
+    return alerts
 
 
 @api_router.get("/alerts/unread-count")
 async def get_unread_count(request: Request = None):
     """Return the number of active alerts."""
-    auth_module.require_auth(request)
+    user = auth_module.require_auth(request)
     alerts = storage.list("alerts/active")
+    
+    # Filter alerts for user role - only count alerts from assigned folders
+    if user["role"] == "user":
+        user_folders = user.get("folders", [])
+        alerts = [a for a in alerts if a.get("folder") in user_folders]
+    
     return {"unread_count": len(alerts)}
 
 
