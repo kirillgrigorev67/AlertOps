@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { UserPlus, Trash2, Key, Shield, Loader, X, Folder, Search, Check, ChevronDown, Plus, Edit2 } from 'lucide-react'
+import { UserPlus, Trash2, Key, User as UserIcon, Loader, X, Folder, Search, Check, ChevronDown, Plus, Edit2 } from 'lucide-react'
 import api, { type User } from '../api/client'
 import ConfirmModal from '../components/ConfirmModal'
 
@@ -241,6 +241,7 @@ export default function Users() {
   const [folders, setFolders] = useState<FolderInfo[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
   
   // Create user form
   const [showCreateModal, setShowCreateModal] = useState(false)
@@ -258,15 +259,13 @@ export default function Users() {
   // Delete confirm
   const [deleteTarget, setDeleteTarget] = useState<User | null>(null)
   
-  // Edit username modal
-  const [editUsernameTarget, setEditUsernameTarget] = useState<User | null>(null)
-  const [editUsernameValue, setEditUsernameValue] = useState('')
-  const [savingUsername, setSavingUsername] = useState(false)
-  
-  // Folder access modal
-  const [folderTarget, setFolderTarget] = useState<User | null>(null)
-  const [selectedFolders, setSelectedFolders] = useState<string[]>([])
-  const [savingFolders, setSavingFolders] = useState(false)
+  // Edit user modal (username, role, active, folders)
+  const [editUserTarget, setEditUserTarget] = useState<User | null>(null)
+  const [editUsername, setEditUsername] = useState('')
+  const [editRole, setEditRole] = useState<'admin' | 'user'>('user')
+  const [editActive, setEditActive] = useState(true)
+  const [editFolders, setEditFolders] = useState<string[]>([])
+  const [savingUser, setSavingUser] = useState(false)
 
   const loadUsers = async () => {
     try {
@@ -321,24 +320,6 @@ export default function Users() {
     }
   }
 
-  const handleToggleActive = async (user: User) => {
-    try {
-      await api.users.update(user.id, { active: !user.active })
-      await loadUsers()
-    } catch (err: any) {
-      setError(err.message || 'Failed to update user')
-    }
-  }
-
-  const handleChangeRole = async (user: User, role: string) => {
-    try {
-      await api.users.update(user.id, { role })
-      await loadUsers()
-    } catch (err: any) {
-      setError(err.message || 'Failed to update user')
-    }
-  }
-
   const handleResetPassword = async () => {
     if (!resetTarget || !resetPassword) return
     
@@ -366,57 +347,69 @@ export default function Users() {
     }
   }
 
-  const openEditUsernameModal = (user: User) => {
-    setEditUsernameTarget(user)
-    setEditUsernameValue(user.username)
+  const openEditUserModal = (user: User) => {
+    setEditUserTarget(user)
+    setEditUsername(user.username)
+    setEditRole(user.role as 'admin' | 'user')
+    setEditActive(user.active)
+    setEditFolders(user.folders || [])
   }
 
-  const saveUsername = async () => {
-    if (!editUsernameTarget || !editUsernameValue.trim()) return
+  const saveUser = async () => {
+    if (!editUserTarget || !editUsername.trim()) return
     
-    setSavingUsername(true)
+    setSavingUser(true)
     setError('')
     try {
-      await api.users.update(editUsernameTarget.id, { username: editUsernameValue.trim() })
-      setEditUsernameTarget(null)
+      await api.users.update(editUserTarget.id, {
+        username: editUsername.trim(),
+        role: editRole,
+        active: editActive,
+        folders: editRole === 'user' ? editFolders : []
+      })
+      setEditUserTarget(null)
       await loadUsers()
     } catch (err: any) {
-      setError(err.message || 'Failed to update username')
+      setError(err.message || 'Failed to update user')
     } finally {
-      setSavingUsername(false)
-    }
-  }
-
-  const openFolderModal = (user: User) => {
-    setFolderTarget(user)
-    setSelectedFolders(user.folders || [])
-  }
-
-  const saveFolders = async () => {
-    if (!folderTarget) return
-    
-    setSavingFolders(true)
-    try {
-      await api.users.update(folderTarget.id, { folders: selectedFolders })
-      setFolderTarget(null)
-      await loadUsers()
-    } catch (err: any) {
-      setError(err.message || 'Failed to save folder access')
-    } finally {
-      setSavingFolders(false)
+      setSavingUser(false)
     }
   }
 
   return (
-    <div className="page">
-      <div className="page-header">
-        <h2 className="page-title">
-          <Shield size={24} style={{ verticalAlign: 'middle', marginRight: '8px' }} />
+    <div>
+      <div className="header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+        <h1 className="page-title">
+          <UserIcon size={28} style={{ verticalAlign: 'middle', marginRight: '8px' }} />
           Users
-        </h2>
-        <button onClick={() => setShowCreateModal(true)} className="btn btn-primary">
-          <UserPlus size={16} /> New User
-        </button>
+        </h1>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{ position: 'relative', width: '260px' }}>
+            <Search
+              size={16}
+              style={{
+                position: 'absolute',
+                left: '12px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                color: 'var(--text-muted)',
+              }}
+            />
+            <input
+              type="text"
+              placeholder="Search users..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              style={{
+                width: '100%',
+                paddingLeft: '36px',
+              }}
+            />
+          </div>
+          <button onClick={() => setShowCreateModal(true)} className="btn btn-primary">
+            <UserPlus size={16} /> New User
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -430,111 +423,86 @@ export default function Users() {
           <Loader size={16} className="spinner" /> Loading users...
         </div>
       ) : (
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Username</th>
-              <th>Role</th>
-              <th>Folders</th>
-              <th>Status</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {users.map((user) => (
-              <tr key={user.id}>
-                <td style={{ fontWeight: 500 }}>
-                  {user.username}
-                  {user.is_default && (
-                    <span style={{ marginLeft: '8px', fontSize: '11px', color: 'var(--text-muted)' }}>(default)</span>
-                  )}
-                </td>
-                <td>
-                  {user.is_default ? (
-                    <span className="badge" style={{ background: 'rgba(99, 102, 241, 0.15)', color: '#6366f1' }}>admin</span>
-                  ) : (
-                    <select
-                      value={user.role}
-                      onChange={(e) => handleChangeRole(user, e.target.value)}
-                      style={{
-                        padding: '4px 8px',
-                        background: 'var(--bg-tertiary)',
-                        border: '1px solid var(--border-color)',
-                        borderRadius: 'var(--radius-sm)',
-                        color: 'var(--text-primary)',
-                        fontSize: '13px',
-                      }}
-                    >
-                      <option value="user">user</option>
-                      <option value="admin">admin</option>
-                    </select>
-                  )}
-                </td>
-                <td>
-                  {user.role === 'user' && !user.is_default ? (
-                    <button
-                      onClick={() => openFolderModal(user)}
-                      className="btn btn-secondary"
-                      style={{ padding: '4px 10px', fontSize: '12px' }}
-                    >
-                      <Folder size={12} style={{ marginRight: '4px' }} />
-                      {(user.folders || []).length > 0 ? `${(user.folders || []).length} folder(s)` : 'None'}
-                    </button>
-                  ) : (
-                    <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>—</span>
-                  )}
-                </td>
-                <td>
-                  <button
-                    onClick={() => handleToggleActive(user)}
-                    disabled={user.is_default}
-                    className="btn btn-secondary"
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          {users
+            .filter(user => 
+              searchQuery === '' || 
+              user.username.toLowerCase().includes(searchQuery.toLowerCase())
+            )
+            .map((user) => (
+            <div key={user.id} className="card">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: 0, overflow: 'hidden' }}>
+                  <h3
                     style={{
-                      padding: '4px 10px',
-                      fontSize: '12px',
-                      color: user.active ? 'var(--success)' : 'var(--error)',
-                      opacity: user.is_default ? 0.5 : 1,
+                      fontSize: '16px',
+                      fontWeight: 600,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
                     }}
                   >
-                    {user.active ? 'Active' : 'Inactive'}
-                  </button>
-                </td>
-                <td>
-                  <div style={{ display: 'flex', gap: '4px' }}>
-                    {!user.is_default && (
-                      <>
-                        <button
-                          onClick={() => openEditUsernameModal(user)}
-                          className="btn btn-secondary"
-                          style={{ padding: '4px', color: 'var(--text-secondary)' }}
-                          title="Edit username"
-                        >
-                          <Edit2 size={14} />
-                        </button>
-                        <button
-                          onClick={() => setResetTarget(user)}
-                          className="btn btn-secondary"
-                          style={{ padding: '4px', color: 'var(--text-secondary)' }}
-                          title="Reset password"
-                        >
-                          <Key size={14} />
-                        </button>
-                        <button
-                          onClick={() => setDeleteTarget(user)}
-                          className="btn btn-secondary"
-                          style={{ padding: '4px', color: '#ef4444' }}
-                          title="Delete user"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </>
+                    {user.username}
+                    {user.is_default && (
+                      <span style={{ marginLeft: '8px', fontSize: '11px', color: 'var(--text-muted)' }}>(default)</span>
                     )}
-                  </div>
-                </td>
-              </tr>
+                  </h3>
+                  <span className="badge" style={{ 
+                    background: user.role === 'admin' ? 'rgba(99, 102, 241, 0.15)' : 'rgba(59, 130, 246, 0.15)', 
+                    color: user.role === 'admin' ? '#6366f1' : '#3b82f6',
+                    flexShrink: 0 
+                  }}>
+                    {user.role}
+                  </span>
+                  <span className="badge" style={{ 
+                    background: user.active ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)', 
+                    color: user.active ? 'var(--success)' : 'var(--error)',
+                    flexShrink: 0 
+                  }}>
+                    {user.active ? 'Active' : 'Inactive'}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', gap: '4px', marginLeft: '8px', flexShrink: 0 }}>
+                  {!user.is_default && (
+                    <>
+                      <button
+                        onClick={() => openEditUserModal(user)}
+                        className="btn btn-secondary"
+                        style={{ padding: '6px', color: 'var(--text-secondary)' }}
+                        title="Edit user"
+                      >
+                        <Edit2 size={16} />
+                      </button>
+                      <button
+                        onClick={() => setResetTarget(user)}
+                        className="btn btn-secondary"
+                        style={{ padding: '6px', color: 'var(--text-secondary)' }}
+                        title="Reset password"
+                      >
+                        <Key size={16} />
+                      </button>
+                      <button
+                        onClick={() => setDeleteTarget(user)}
+                        className="btn btn-secondary"
+                        style={{ padding: '6px', color: '#ef4444' }}
+                        title="Delete user"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+              
+              {user.role === 'user' && !user.is_default && (
+                <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                  <Folder size={12} style={{ marginRight: '4px', verticalAlign: 'middle' }} />
+                  {(user.folders || []).length > 0 ? `${(user.folders || []).length} folder(s)` : 'No folders assigned'}
+                </div>
+              )}
+            </div>
             ))}
-          </tbody>
-        </table>
+        </div>
       )}
 
       {/* Create User Modal */}
@@ -635,62 +603,65 @@ export default function Users() {
         </div>
       )}
 
-      {/* Folder Access Modal */}
-      {folderTarget && (
-        <div className="modal-overlay" onClick={() => setFolderTarget(null)}>
+      {/* Edit User Modal */}
+      {editUserTarget && (
+        <div className="modal-overlay" onClick={() => setEditUserTarget(null)}>
           <div className="modal" onClick={(e: React.MouseEvent) => e.stopPropagation()} style={{ maxWidth: '480px', width: '90%', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
             <div className="modal-header" style={{ flexShrink: 0 }}>
-              <h3 className="modal-title">Folder Access — {folderTarget.username}</h3>
-              <button onClick={() => setFolderTarget(null)} className="btn btn-secondary" style={{ padding: '6px' }}>
+              <h3 className="modal-title">Edit User — {editUserTarget.username}</h3>
+              <button onClick={() => setEditUserTarget(null)} className="btn btn-secondary" style={{ padding: '6px' }}>
                 <X size={18} />
               </button>
             </div>
-            <div className="modal-body" style={{ flex: 1, overflowY: 'auto' }}>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '12px' }}>
-                Select which folders this user can edit:
-              </p>
-              <FolderMultiSelect
-                folders={folders}
-                selected={selectedFolders}
-                onChange={(f) => setSelectedFolders(f)}
-              />
-            </div>
-            <div className="modal-footer" style={{ flexShrink: 0, borderTop: '1px solid var(--border-color)' }}>
-              <button onClick={() => setFolderTarget(null)} className="btn btn-secondary">Cancel</button>
-              <button onClick={saveFolders} className="btn btn-primary" disabled={savingFolders}>
-                {savingFolders ? <><Loader size={16} className="spinner" /> Saving...</> : 'Save'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Edit Username Modal */}
-      {editUsernameTarget && (
-        <div className="modal-overlay" onClick={() => setEditUsernameTarget(null)}>
-          <div className="modal" onClick={(e: React.MouseEvent) => e.stopPropagation()} style={{ maxWidth: '420px', width: '90%' }}>
-            <div className="modal-header">
-              <h3 className="modal-title">Edit Username — {editUsernameTarget.username}</h3>
-              <button onClick={() => setEditUsernameTarget(null)} className="btn btn-secondary" style={{ padding: '6px' }}>
-                <X size={18} />
-              </button>
-            </div>
-            <div className="modal-body">
+            <div className="modal-body" style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div>
-                <label className="form-label">New Username</label>
+                <label className="form-label">Username</label>
                 <input
                   type="text"
-                  value={editUsernameValue}
-                  onChange={(e) => setEditUsernameValue(e.target.value)}
-                  autoFocus
+                  value={editUsername}
+                  onChange={(e) => setEditUsername(e.target.value)}
                   style={{ width: '100%', padding: '10px 12px', background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', fontSize: '14px' }}
                 />
               </div>
+              <div>
+                <label className="form-label">Role</label>
+                <select
+                  value={editRole}
+                  onChange={(e) => setEditRole(e.target.value as 'admin' | 'user')}
+                  style={{ width: '100%', padding: '10px 12px', background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', fontSize: '14px' }}
+                >
+                  <option value="user">User (read-only + edit assigned folders)</option>
+                  <option value="admin">Admin (full access + user management)</option>
+                </select>
+              </div>
+              <div>
+                <label className="form-label">Status</label>
+                <select
+                  value={editActive ? 'active' : 'inactive'}
+                  onChange={(e) => setEditActive(e.target.value === 'active')}
+                  style={{ width: '100%', padding: '10px 12px', background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', fontSize: '14px' }}
+                >
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                </select>
+              </div>
+              {editRole === 'user' && (
+                <div>
+                  <label className="form-label">Folders (edit access)</label>
+                  <div style={{ marginTop: '8px' }}>
+                    <FolderMultiSelect
+                      folders={folders}
+                      selected={editFolders}
+                      onChange={(f) => setEditFolders(f)}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
-            <div className="modal-footer">
-              <button onClick={() => setEditUsernameTarget(null)} className="btn btn-secondary">Cancel</button>
-              <button onClick={saveUsername} className="btn btn-primary" disabled={savingUsername || !editUsernameValue.trim()}>
-                {savingUsername ? <><Loader size={16} className="spinner" /> Saving...</> : 'Save'}
+            <div className="modal-footer" style={{ flexShrink: 0, borderTop: '1px solid var(--border-color)' }}>
+              <button onClick={() => setEditUserTarget(null)} className="btn btn-secondary">Cancel</button>
+              <button onClick={saveUser} className="btn btn-primary" disabled={savingUser || !editUsername.trim()}>
+                {savingUser ? <><Loader size={16} className="spinner" /> Saving...</> : 'Save'}
               </button>
             </div>
           </div>
