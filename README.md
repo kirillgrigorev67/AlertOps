@@ -54,7 +54,7 @@ Manage multiple LLM providers. Supports DeepSeek, OpenAI, and any OpenAI-compati
 ---
 
 ### Notification Channels
-Configure notification channels (Telegram, Webhook) and assign them to folders. All rules within a folder share the same notification configuration.
+Configure notification channels (Telegram, Webhook, Discord, Email) and assign them to folders. All rules within a folder share the same notification configuration.
 
 
 ![Notification Channels](assets/screenshots/notification-channels.png)
@@ -337,6 +337,8 @@ AlertOps supports sending alerts to external channels:
 
 - **Telegram** — sends formatted messages with alert details and AI diagnosis
 - **Webhook** — POSTs JSON payload to any URL
+- **Discord** — sends rich embeds with severity-based color coding via webhook URL
+- **Email** — sends plain-text or HTML emails via SMTP
 
 **Channel assignment (folder-level only)**:
 Notification channels are managed exclusively at the folder level. When an alert fires:
@@ -481,7 +483,7 @@ The backend exposes a REST API at `http://localhost:8000/api/`. All endpoints re
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/api/notification-channels` | List all notification channels |
-| `POST` | `/api/notification-channels` | Create a new channel (Telegram or Webhook) |
+| `POST` | `/api/notification-channels` | Create a new channel (Telegram, Webhook, Discord, or Email) |
 | `PUT` | `/api/notification-channels/{id}` | Update a channel |
 | `DELETE` | `/api/notification-channels/{id}` | Delete a channel (also removes it from all folders) |
 | `POST` | `/api/notification-channels/{id}/test` | Send a test notification |
