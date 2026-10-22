@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react'
-import { Radio, Plus, Trash2, Edit2, Send, Loader, Check, X, Tag, Globe, MessageSquare, Bell, Search } from 'lucide-react'
+import { Radio, Plus, Trash2, Edit2, Send, Loader, Check, X, Tag, Globe, MessageSquare, Bell, Search, Mail } from 'lucide-react'
 import api from '../api/client'
 import ConfirmModal from '../components/ConfirmModal'
 
 interface NotificationChannel {
   id: string
   name: string
-  channel_type: 'telegram' | 'webhook'
+  channel_type: 'telegram' | 'webhook' | 'discord' | 'email'
   enabled: boolean
   config: Record<string, string>
   created_at: string
@@ -32,7 +32,7 @@ export default function NotificationChannels() {
 
   // Form state
   const [name, setName] = useState('')
-  const [channelType, setChannelType] = useState<'telegram' | 'webhook'>('telegram')
+  const [channelType, setChannelType] = useState<'telegram' | 'webhook' | 'discord' | 'email'>('telegram')
   const [enabled, setEnabled] = useState(true)
 
   // Telegram config
@@ -42,6 +42,17 @@ export default function NotificationChannels() {
   // Webhook config
   const [webhookUrl, setWebhookUrl] = useState('')
   const [webhookMethod, setWebhookMethod] = useState('POST')
+
+  // Discord config
+  const [discordWebhookUrl, setDiscordWebhookUrl] = useState('')
+
+  // Email config
+  const [emailHost, setEmailHost] = useState('')
+  const [emailPort, setEmailPort] = useState('587')
+  const [emailUsername, setEmailUsername] = useState('')
+  const [emailPassword, setEmailPassword] = useState('')
+  const [emailFrom, setEmailFrom] = useState('')
+  const [emailTo, setEmailTo] = useState('')
 
   useEffect(() => {
     loadChannels()
@@ -68,6 +79,13 @@ export default function NotificationChannels() {
     setChatId('')
     setWebhookUrl('')
     setWebhookMethod('POST')
+    setDiscordWebhookUrl('')
+    setEmailHost('')
+    setEmailPort('587')
+    setEmailUsername('')
+    setEmailPassword('')
+    setEmailFrom('')
+    setEmailTo('')
     setEditingChannel(null)
     setError(null)
   }
@@ -86,9 +104,18 @@ export default function NotificationChannels() {
     if (channel.channel_type === 'telegram') {
       setBotToken(channel.config?.bot_token || '')
       setChatId(channel.config?.chat_id || '')
-    } else {
+    } else if (channel.channel_type === 'webhook') {
       setWebhookUrl(channel.config?.url || '')
       setWebhookMethod(channel.config?.method || 'POST')
+    } else if (channel.channel_type === 'discord') {
+      setDiscordWebhookUrl(channel.config?.webhook_url || '')
+    } else {
+      setEmailHost(channel.config?.host || '')
+      setEmailPort(channel.config?.port || '587')
+      setEmailUsername(channel.config?.username || '')
+      setEmailPassword(channel.config?.password || '')
+      setEmailFrom(channel.config?.from_address || '')
+      setEmailTo(channel.config?.to_addresses || '')
     }
 
     setError(null)
@@ -106,8 +133,14 @@ export default function NotificationChannels() {
     if (channelType === 'telegram') {
       if (!botToken.trim()) return 'Bot token is required'
       if (!chatId.trim()) return 'Chat ID is required'
-    } else {
+    } else if (channelType === 'webhook') {
       if (!webhookUrl.trim()) return 'Webhook URL is required'
+    } else if (channelType === 'discord') {
+      if (!discordWebhookUrl.trim()) return 'Webhook URL is required'
+    } else {
+      if (!emailHost.trim()) return 'SMTP host is required'
+      if (!emailFrom.trim()) return 'From address is required'
+      if (!emailTo.trim()) return 'To addresses are required'
     }
 
     return null
@@ -119,10 +152,23 @@ export default function NotificationChannels() {
         bot_token: botToken.trim(),
         chat_id: chatId.trim(),
       }
-    } else {
+    } else if (channelType === 'webhook') {
       return {
         url: webhookUrl.trim(),
         method: webhookMethod,
+      }
+    } else if (channelType === 'discord') {
+      return {
+        webhook_url: discordWebhookUrl.trim(),
+      }
+    } else {
+      return {
+        host: emailHost.trim(),
+        port: emailPort.trim(),
+        username: emailUsername.trim(),
+        password: emailPassword.trim(),
+        from_address: emailFrom.trim(),
+        to_addresses: emailTo.trim(),
       }
     }
   }
@@ -213,7 +259,7 @@ export default function NotificationChannels() {
   }
 
   const getChannelLabel = (type: string) => {
-    return type === 'telegram' ? 'Telegram' : 'Webhook'
+    return type === 'telegram' ? 'Telegram' : type === 'webhook' ? 'Webhook' : type === 'discord' ? 'Discord' : 'Email'
   }
 
   if (loading) {
@@ -283,13 +329,17 @@ export default function NotificationChannels() {
                 <span
                   className="badge"
                   style={{
-                    background: channel.channel_type === 'telegram' ? 'rgba(34, 158, 217, 0.15)' : 'rgba(99, 102, 241, 0.15)',
-                    color: channel.channel_type === 'telegram' ? '#229ed9' : '#6366f1',
+                    background: channel.channel_type === 'telegram' ? 'rgba(34, 158, 217, 0.15)' : channel.channel_type === 'discord' ? 'rgba(88, 101, 242, 0.15)' : channel.channel_type === 'email' ? 'rgba(59, 130, 246, 0.15)' : 'rgba(99, 102, 241, 0.15)',
+                    color: channel.channel_type === 'telegram' ? '#229ed9' : channel.channel_type === 'discord' ? '#5865F2' : channel.channel_type === 'email' ? '#3b82f6' : '#6366f1',
                     flexShrink: 0,
                   }}
                 >
                   {channel.channel_type === 'telegram' ? (
                     <MessageSquare size={10} style={{ marginRight: '4px', display: 'inline', verticalAlign: 'middle' }} />
+                  ) : channel.channel_type === 'discord' ? (
+                    <MessageSquare size={10} style={{ marginRight: '4px', display: 'inline', verticalAlign: 'middle' }} />
+                  ) : channel.channel_type === 'email' ? (
+                    <Mail size={10} style={{ marginRight: '4px', display: 'inline', verticalAlign: 'middle' }} />
                   ) : (
                     <Globe size={10} style={{ marginRight: '4px', display: 'inline', verticalAlign: 'middle' }} />
                   )}
@@ -377,6 +427,28 @@ export default function NotificationChannels() {
                     Token: {channel.config?.bot_token ? '••••••••' : 'Not set'}
                   </span>
                 </>
+              ) : channel.channel_type === 'discord' ? (
+                <>
+                  <span className="alert-meta-item">
+                    <Globe size={14} />
+                    URL: {channel.config?.webhook_url ? channel.config.webhook_url.substring(0, 30) + '...' : 'Not set'}
+                  </span>
+                </>
+              ) : channel.channel_type === 'email' ? (
+                <>
+                  <span className="alert-meta-item">
+                    <Mail size={14} />
+                    SMTP: {channel.config?.host || 'Not set'}:{channel.config?.port || '587'}
+                  </span>
+                  <span className="alert-meta-item">
+                    <Tag size={14} />
+                    From: {channel.config?.from_address || 'Not set'}
+                  </span>
+                  <span className="alert-meta-item">
+                    <Bell size={14} />
+                    To: {channel.config?.to_addresses || 'Not set'}
+                  </span>
+                </>
               ) : (
                 <>
                   <span className="alert-meta-item">
@@ -401,7 +473,7 @@ export default function NotificationChannels() {
             {search ? 'No channels match your search' : 'No notification channels'}
           </h3>
           <p style={{ color: 'var(--text-secondary)', marginBottom: '24px' }}>
-            {search ? 'Try a different search term' : 'Create a channel to receive alerts via Telegram or Webhook'}
+            {search ? 'Try a different search term' : 'Create a channel to receive alerts via Telegram, Webhook, Discord, or Email'}
           </p>
           {!search && (
             <button className="btn btn-primary" onClick={openAddModal}>
@@ -446,20 +518,36 @@ export default function NotificationChannels() {
               <div className="form-group">
                 <label className="form-label">Channel Type</label>
                 <div style={{ display: 'flex', gap: '8px' }}>
-                  <button
-                    className={`btn ${channelType === 'telegram' ? 'btn-primary' : 'btn-secondary'}`}
-                    onClick={() => setChannelType('telegram')}
-                    style={{ flex: 1 }}
-                  >
-                    Telegram
-                  </button>
-                  <button
-                    className={`btn ${channelType === 'webhook' ? 'btn-primary' : 'btn-secondary'}`}
-                    onClick={() => setChannelType('webhook')}
-                    style={{ flex: 1 }}
-                  >
-                    Webhook
-                  </button>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <button
+                      className={`btn ${channelType === 'telegram' ? 'btn-primary' : 'btn-secondary'}`}
+                      onClick={() => setChannelType('telegram')}
+                      style={{ flex: 1, minWidth: '90px' }}
+                    >
+                      Telegram
+                    </button>
+                    <button
+                      className={`btn ${channelType === 'discord' ? 'btn-primary' : 'btn-secondary'}`}
+                      onClick={() => setChannelType('discord')}
+                      style={{ flex: 1, minWidth: '90px' }}
+                    >
+                      Discord
+                    </button>
+                    <button
+                      className={`btn ${channelType === 'email' ? 'btn-primary' : 'btn-secondary'}`}
+                      onClick={() => setChannelType('email')}
+                      style={{ flex: 1, minWidth: '90px' }}
+                    >
+                      Email
+                    </button>
+                    <button
+                      className={`btn ${channelType === 'webhook' ? 'btn-primary' : 'btn-secondary'}`}
+                      onClick={() => setChannelType('webhook')}
+                      style={{ flex: 1, minWidth: '90px' }}
+                    >
+                      Webhook
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -494,6 +582,82 @@ export default function NotificationChannels() {
                       value={chatId}
                       onChange={e => setChatId(e.target.value)}
                       placeholder="-1001234567890 or @channelusername"
+                    />
+                  </div>
+                </>
+              ) : channelType === 'discord' ? (
+                <>
+                  <div className="form-group">
+                    <label className="form-label">Discord Webhook URL</label>
+                    <input
+                      className="form-input"
+                      type="url"
+                      value={discordWebhookUrl}
+                      onChange={e => setDiscordWebhookUrl(e.target.value)}
+                      placeholder="https://discord.com/api/webhooks/..."
+                    />
+                  </div>
+                </>
+              ) : channelType === 'email' ? (
+                <>
+                  <div className="form-group">
+                    <label className="form-label">SMTP Host</label>
+                    <input
+                      className="form-input"
+                      type="text"
+                      value={emailHost}
+                      onChange={e => setEmailHost(e.target.value)}
+                      placeholder="smtp.gmail.com"
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">SMTP Port</label>
+                    <input
+                      className="form-input"
+                      type="text"
+                      value={emailPort}
+                      onChange={e => setEmailPort(e.target.value)}
+                      placeholder="587"
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Username (optional)</label>
+                    <input
+                      className="form-input"
+                      type="text"
+                      value={emailUsername}
+                      onChange={e => setEmailUsername(e.target.value)}
+                      placeholder="user@example.com"
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Password (optional)</label>
+                    <input
+                      className="form-input"
+                      type="password"
+                      value={emailPassword}
+                      onChange={e => setEmailPassword(e.target.value)}
+                      placeholder="••••••••"
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">From Address</label>
+                    <input
+                      className="form-input"
+                      type="email"
+                      value={emailFrom}
+                      onChange={e => setEmailFrom(e.target.value)}
+                      placeholder="alerts@yourcompany.com"
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">To Addresses</label>
+                    <input
+                      className="form-input"
+                      type="text"
+                      value={emailTo}
+                      onChange={e => setEmailTo(e.target.value)}
+                      placeholder="team@yourcompany.com, ops@yourcompany.com"
                     />
                   </div>
                 </>

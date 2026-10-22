@@ -59,13 +59,17 @@ export default function ChannelSelectDropdown({
   }
 
   const getChannelIcon = (channelType: string) => {
-    return channelType === 'telegram' ? 'TG' : 'WH'
+    return channelType === 'telegram' ? 'TG' : channelType === 'discord' ? 'DC' : channelType === 'email' ? 'EM' : 'WH'
   }
 
   const getChannelColor = (channelType: string) => {
     return channelType === 'telegram'
       ? { bg: 'rgba(34, 158, 217, 0.15)', text: '#229ed9' }
-      : { bg: 'rgba(99, 102, 241, 0.15)', text: '#6366f1' }
+      : channelType === 'discord'
+        ? { bg: 'rgba(88, 101, 242, 0.15)', text: '#5865F2' }
+        : channelType === 'email'
+          ? { bg: 'rgba(59, 130, 246, 0.15)', text: '#3b82f6' }
+          : { bg: 'rgba(99, 102, 241, 0.15)', text: '#6366f1' }
   }
 
   return (

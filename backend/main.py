@@ -31,7 +31,7 @@ from models import (
     UserUpdate,
 )
 from storage import storage
-from notifiers import BaseNotifier, TelegramNotifier, WebhookNotifier
+from notifiers import BaseNotifier, TelegramNotifier, WebhookNotifier, DiscordNotifier, EmailNotifier
 from grafana_client import grafana
 from rule_generator import rule_generator
 from query_validator import query_validator
@@ -256,6 +256,10 @@ async def _send_notifications(alert_id: str, alert_data: Dict[str, Any]):
                 notifier = TelegramNotifier(config)
             elif ch_type == "webhook":
                 notifier = WebhookNotifier(config)
+            elif ch_type == "discord":
+                notifier = DiscordNotifier(config)
+            elif ch_type == "email":
+                notifier = EmailNotifier(config)
             
             if notifier:
                 try:
@@ -1826,7 +1830,10 @@ async def test_notification_channel(channel_id: str, request: Request = None):
         notifier = TelegramNotifier(config)
     elif ch_type == "webhook":
         notifier = WebhookNotifier(config)
-    
+    elif ch_type == "discord":
+        notifier = DiscordNotifier(config)
+    elif ch_type == "email":
+        notifier = EmailNotifier(config)
     if not notifier:
         raise HTTPException(status_code=400, detail=f"Unknown channel type: {ch_type}")
     
