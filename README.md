@@ -192,6 +192,7 @@ AUTH_ENABLED=true
 AUTH_ADMIN_USERNAME=admin
 AUTH_ADMIN_PASSWORD=Admin
 AUTH_JWT_SECRET=change-this-to-a-random-string
+AUTH_JWT_EXPIRATION_HOURS=3
 ```
 
 ### LLM Providers

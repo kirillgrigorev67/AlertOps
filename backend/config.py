@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     auth_admin_username: str = "admin"
     auth_admin_password: str = "Admin"
     auth_jwt_secret: str = "alertops-secret-change-me"
-    auth_jwt_expiration_hours: int = 24
+    auth_jwt_expiration_hours: int = 3
 
     class Config:
         env_file = ".env"
