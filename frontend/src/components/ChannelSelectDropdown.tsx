@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState } from 'react'
 import { ChevronDown, Search, X, Check } from 'lucide-react'
 
 interface Channel {
@@ -26,17 +26,8 @@ export default function ChannelSelectDropdown({
 }: ChannelSelectDropdownProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
-  const dropdownRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setIsOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [])
+  
+  // No document-level listener needed - dropdown closes via click on items
 
   const filteredChannels = channels.filter(ch =>
     ch.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -45,7 +36,8 @@ export default function ChannelSelectDropdown({
 
   const selectedChannels = channels.filter(ch => selectedIds.includes(ch.id))
 
-  const toggleChannel = (channelId: string) => {
+  const toggleChannel = (channelId: string, e: React.MouseEvent) => {
+    e.stopPropagation()
     if (selectedIds.includes(channelId)) {
       onChange(selectedIds.filter(id => id !== channelId))
     } else {
@@ -73,7 +65,7 @@ export default function ChannelSelectDropdown({
   }
 
   return (
-    <div style={{ marginBottom: '12px' }} ref={dropdownRef}>
+    <div style={{ marginBottom: '12px' }}>
       <label style={{
         display: 'block',
         marginBottom: '6px',
@@ -221,7 +213,7 @@ export default function ChannelSelectDropdown({
                 return (
                   <div
                     key={ch.id}
-                    onClick={() => toggleChannel(ch.id)}
+                    onClick={(e) => toggleChannel(ch.id, e)}
                     style={{
                       padding: '8px 12px',
                       cursor: 'pointer',
