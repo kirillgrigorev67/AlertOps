@@ -130,6 +130,11 @@ services:
       - AUTH_ADMIN_USERNAME=${AUTH_ADMIN_USERNAME:-admin}
       - AUTH_ADMIN_PASSWORD=${AUTH_ADMIN_PASSWORD:-Admin}
       - AUTH_JWT_SECRET=${AUTH_JWT_SECRET:-alertops-secret-change-me}
+      - AUTH_JWT_EXPIRATION_HOURS=${AUTH_JWT_EXPIRATION_HOURS:-3}
+      - STATUS_PAGE_ENABLED=${STATUS_PAGE_ENABLED:-false}
+      - STATUS_PAGE_TITLE=${STATUS_PAGE_TITLE:-AlertOps Status}
+      - STATUS_PAGE_LOGO_URL=${STATUS_PAGE_LOGO_URL:-}
+      - STATUS_PAGE_FOOTER_TEXT=${STATUS_PAGE_FOOTER_TEXT:-Powered by AlertOps}
     volumes:
       - ./backend:/app
       - ./data/backend:/app/data

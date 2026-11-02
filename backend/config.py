@@ -31,6 +31,12 @@ class Settings(BaseSettings):
     auth_jwt_secret: str = "alertops-secret-change-me"
     auth_jwt_expiration_hours: int = 3
 
+    # Status page settings
+    status_page_enabled: bool = False
+    status_page_title: str = "AlertOps Status"
+    status_page_logo_url: str = ""
+    status_page_footer_text: str = "Powered by AlertOps"
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

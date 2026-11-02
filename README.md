@@ -355,7 +355,31 @@ Notification channels are managed exclusively at the folder level. When an alert
 3. Test the channel with a test alert
 4. Assign channels to a folder via the folder's "Channels" button in **Alert Rules**
 
-### 6. Alert Counter Badge
+### 6. Status Page (Public Monitoring Dashboard)
+
+AlertOps includes a public, read-only status page that shows the current health of all services without requiring authentication.
+
+**Features**:
+- **Per-service status**: Each folder is displayed as "Operational", "Degraded Performance", or "Outage" based on active alert severity
+- **Real-time timeline**: Shows incident history with resolution times on a visible timeline
+- **MTTR statistics**: Mean Time To Resolution calculated from resolved incidents
+- **Custom branding**: Configurable title, logo URL, and footer text
+- **Auto-refresh**: Data refreshes every 5 seconds via polling
+- **Offline-friendly**: Clean, minimal design with no sidebar or navigation
+
+**Enable the status page**:
+Set `STATUS_PAGE_ENABLED=true` in `.env` and restart the backend.
+
+The status page is available at `http://localhost:8080/status` — no login required.
+
+```env
+STATUS_PAGE_ENABLED=true
+STATUS_PAGE_TITLE=My Company Status
+STATUS_PAGE_LOGO_URL=https://example.com/logo.png
+STATUS_PAGE_FOOTER_TEXT=Powered by AlertOps
+```
+
+### 7. Alert Counter Badge
 
 The sidebar shows a **red badge** next to "Active Alerts" with the current count of all active alerts. The counter:
 
@@ -363,7 +387,7 @@ The sidebar shows a **red badge** next to "Active Alerts" with the current count
 - Shows **99+** when there are more than 99 active alerts
 - Disappears when there are no active alerts
 
-### 7. File Storage
+### 8. File Storage
 
 All data is stored in `./data/`:
 

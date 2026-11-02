@@ -10,9 +10,17 @@ import Providers from './pages/Providers'
 import NotificationChannels from './pages/NotificationChannels'
 import Users from './pages/Users'
 import Login from './pages/Login'
+import StatusPage from './pages/StatusPage'
 
 function App() {
   const { isAuthenticated, isAdmin } = useAuth()
+
+  // Public status page — no auth, no layout
+  const statusPageEnabled = window.location.pathname === '/status'
+
+  if (statusPageEnabled) {
+    return <StatusPage />
+  }
 
   if (!isAuthenticated) {
     return <Login />

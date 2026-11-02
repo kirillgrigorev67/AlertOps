@@ -2111,6 +2111,152 @@ async def get_archives(request: Request = None):
     return cleanup_service.get_archive_info()
 
 
+
+# Public Status Page endpoint (no auth required when enabled)
+_status_cache = {"data": None, "time": 0}
+
+
+@api_router.get("/status")
+async def get_public_status(request: Request = None):
+    """Public status page data. No authentication required. Returns aggregated folder/service status."""
+    import time
+    
+    # Check if status page is enabled
+    if not settings.status_page_enabled:
+        raise HTTPException(status_code=404, detail="Status page is not enabled")
+    
+    # Use cache for 5 seconds to avoid excessive polling
+    now = time.time()
+    if now - _status_cache["time"] < 5 and _status_cache["data"] is not None:
+        return _status_cache["data"]
+    
+    alerts = storage.list("alerts/active")
+    history = storage.list("alerts/history")
+    
+    # Group active alerts by folder
+    folder_alerts: Dict[str, List[Dict]] = {}
+    for a in alerts:
+        folder = a.get("folder") or "Uncategorized"
+        folder_alerts.setdefault(folder, []).append(a)
+    
+    # Determine status per folder
+    SEVERITY_RANK = {"critical": 3, "warning": 2, "info": 1}
+    
+    folders_status = []
+    for folder_name in sorted(folder_alerts.keys()):
+        folder_active = folder_alerts[folder_name]
+        max_sev_rank = 0
+        max_severity = "info"
+        for a in folder_active:
+            r = SEVERITY_RANK.get(a.get("severity", "info"), 0)
+            if r > max_sev_rank:
+                max_sev_rank = r
+                max_severity = a.get("severity", "info")
+        
+        if max_sev_rank >= 3:
+            status = "outage"
+        elif max_sev_rank >= 2:
+            status = "degraded"
+        else:
+            status = "operational"
+        
+        folders_status.append({
+            "name": folder_name,
+            "status": status,
+            "alert_count": len(folder_active),
+            "max_severity": max_severity,
+            "alerts": [
+                {
+                    "id": a["id"],
+                    "alertname": a.get("alertname", ""),
+                    "severity": a.get("severity", "warning"),
+                    "description": a.get("description", "")[:200],
+                    "starts_at": a.get("starts_at", ""),
+                    "diagnosis": a.get("diagnosis"),
+                }
+                for a in sorted(folder_active, key=lambda x: x.get("starts_at", ""))
+            ],
+        })
+    
+    # Add folders with no active alerts (operational)
+    all_folders_set = set(f["name"] for f in folders_status)
+    rules = storage.list("rules")
+    known_folders = set()
+    for r in rules:
+        f = r.get("folder")
+        if f:
+            known_folders.add(f)
+    
+    for fname in sorted(known_folders - all_folders_set):
+        folders_status.append({
+            "name": fname,
+            "status": "operational",
+            "alert_count": 0,
+            "max_severity": None,
+            "alerts": [],
+        })
+    
+    # Build incident timeline from recent history (last 100 resolved alerts)
+    timeline_events = []
+    resolved = sorted(
+        [a for a in history if a.get("status") == "resolved"],
+        key=lambda x: x.get("ends_at", ""),
+        reverse=True,
+    )[:100]
+    
+    for a in resolved:
+        timeline_events.append({
+            "type": "resolved",
+            "alertname": a.get("alertname", ""),
+            "folder": a.get("folder") or "Uncategorized",
+            "severity": a.get("severity", "warning"),
+            "starts_at": a.get("starts_at", ""),
+            "ends_at": a.get("ends_at", ""),
+            "duration_seconds": 0,  # computed below
+        })
+    
+    # Calculate durations
+    for evt in timeline_events:
+        try:
+            start = datetime.fromisoformat(evt["starts_at"].replace("Z", "+00:00"))
+            end = datetime.fromisoformat(evt["ends_at"].replace("Z", "+00:00"))
+            evt["duration_seconds"] = int((end - start).total_seconds())
+        except (ValueError, TypeError):
+            evt["duration_seconds"] = 0
+    
+    # MTTA / MTTF stats
+    total_duration = sum(e["duration_seconds"] for e in timeline_events)
+    mttr = total_duration / len(timeline_events) if timeline_events else 0
+    
+    # Count incidents by severity
+    severity_counts = {"critical": 0, "warning": 0, "info": 0}
+    for evt in timeline_events:
+        sev = evt.get("severity", "warning")
+        if sev in severity_counts:
+            severity_counts[sev] += 1
+    
+    data = {
+        "folders": folders_status,
+        "timeline": timeline_events[:50],  # last 50 events
+        "stats": {
+            "total_incidents": len(timeline_events),
+            "mttr_seconds": round(mttr),
+            "severity_counts": severity_counts,
+            "active_alert_count": len(alerts),
+        },
+        "branding": {
+            "title": settings.status_page_title,
+            "logo_url": settings.status_page_logo_url,
+            "footer_text": settings.status_page_footer_text,
+        },
+    }
+    
+    _status_cache["data"] = data
+    _status_cache["time"] = now
+    
+    return data
+
+
 # Register router
 app.include_router(api_router)
 
