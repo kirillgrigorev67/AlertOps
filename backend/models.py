@@ -78,6 +78,14 @@ class Alert(BaseModel):
     silenced_at: Optional[str] = None  # ISO timestamp when silence was applied
 
 
+class AlertFeedback(BaseModel):
+    id: str = ""
+    alert_id: str
+    user_id: Optional[str] = None
+    helpful: bool  # True = 👍, False = 👎
+    timestamp: Optional[str] = None
+
+
 class NotificationChannel(BaseModel):
     id: Optional[str] = None
     name: str

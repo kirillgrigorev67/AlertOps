@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { History, Search, AlertCircle, Trash2, Folder, VolumeX } from 'lucide-react'
+import { History, Search, AlertCircle, Trash2, Folder, VolumeX, ThumbsUp, ThumbsDown } from 'lucide-react'
 import api from '../api/client'
 import ConfirmModal from '../components/ConfirmModal'
 import { useAuth } from '../components/AuthContext'
@@ -25,6 +25,10 @@ interface FolderInfo {
   silenced_until?: string | null
 }
 
+interface FeedbackState {
+  [alertId: string]: 'helpful' | 'not_helpful' | null
+}
+
 export default function AlertHistory() {
   const { isAdmin } = useAuth()
   const [alerts, setAlerts] = useState<Alert[]>([])
@@ -37,6 +41,10 @@ export default function AlertHistory() {
   // Folder filter
   const [folders, setFolders] = useState<FolderInfo[]>([])
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null)
+
+  // Feedback state
+  const [feedback, setFeedback] = useState<FeedbackState>({})
+  const [feedbackLoading, setFeedbackLoading] = useState<string | null>(null)
 
   useEffect(() => {
     loadHistory()
@@ -61,6 +69,19 @@ export default function AlertHistory() {
       setFolders(data)
     } catch (err) {
       console.error('Failed to load folders:', err)
+    }
+  }
+
+  const submitFeedback = async (alertId: string, helpful: boolean) => {
+    if (feedback[alertId]) return
+    setFeedbackLoading(alertId)
+    try {
+      await api.post(`/alerts/${alertId}/feedback`, { helpful })
+      setFeedback(prev => ({ ...prev, [alertId]: helpful ? 'helpful' : 'not_helpful' }))
+    } catch {
+      // Silently fail
+    } finally {
+      setFeedbackLoading(null)
     }
   }
 
@@ -114,6 +135,7 @@ export default function AlertHistory() {
           Alert History
         </h1>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          {/* Search */}
           <div style={{ position: 'relative', width: '260px' }}>
             <Search size={16} style={{ 
               position: 'absolute', 
@@ -271,22 +293,105 @@ export default function AlertHistory() {
             </div>
           )}
 
-          {selectedAlert.diagnosis && (
+          {selectedAlert.diagnosis ? (
             <div style={{ 
               backgroundColor: 'var(--bg-tertiary)',
               padding: '12px',
               borderRadius: 'var(--radius-sm)',
               borderLeft: '3px solid var(--accent-primary)'
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
-                <AlertCircle size={14} color="var(--accent-primary)" />
-                <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--accent-primary)' }}>
-                  AI Diagnosis
-                </span>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <AlertCircle size={14} color="var(--accent-primary)" />
+                  <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--accent-primary)' }}>
+                    AI Diagnosis
+                  </span>
+                </div>
+                {/* Feedback buttons */}
+                <div style={{ display: 'flex', gap: '4px' }}>
+                  <button
+                    onClick={() => submitFeedback(selectedAlert.id, true)}
+                    disabled={!!feedback[selectedAlert.id] || !!feedbackLoading}
+                    title="Was this diagnosis helpful?"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      padding: '3px 8px',
+                      borderRadius: 'var(--radius-sm)',
+                      border: feedback[selectedAlert.id] === 'helpful' 
+                        ? '1.5px solid var(--success)' 
+                        : '1px solid var(--border)',
+                      backgroundColor: feedback[selectedAlert.id] === 'helpful' 
+                        ? 'rgba(34, 197, 94, 0.12)' 
+                        : 'transparent',
+                      color: feedback[selectedAlert.id] === 'helpful' 
+                        ? 'var(--success)' 
+                        : 'var(--text-muted)',
+                      cursor: feedback[selectedAlert.id] ? 'default' : 'pointer',
+                      fontSize: '12px',
+                      transition: 'all 0.2s ease',
+                      opacity: feedbackLoading === selectedAlert.id ? 0.5 : 1,
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!feedback[selectedAlert.id]) {
+                        e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'
+                        e.currentTarget.style.color = 'var(--text-secondary)'
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!feedback[selectedAlert.id]) {
+                        e.currentTarget.style.backgroundColor = 'transparent'
+                        e.currentTarget.style.color = 'var(--text-muted)'
+                      }
+                    }}
+                  >
+                    <ThumbsUp size={14} />
+                  </button>
+                  <button
+                    onClick={() => submitFeedback(selectedAlert.id, false)}
+                    disabled={!!feedback[selectedAlert.id] || !!feedbackLoading}
+                    title="Was this diagnosis not helpful?"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      padding: '3px 8px',
+                      borderRadius: 'var(--radius-sm)',
+                      border: feedback[selectedAlert.id] === 'not_helpful' 
+                        ? '1.5px solid var(--error)' 
+                        : '1px solid var(--border)',
+                      backgroundColor: feedback[selectedAlert.id] === 'not_helpful' 
+                        ? 'rgba(239, 68, 68, 0.12)' 
+                        : 'transparent',
+                      color: feedback[selectedAlert.id] === 'not_helpful' 
+                        ? 'var(--error)' 
+                        : 'var(--text-muted)',
+                      cursor: feedback[selectedAlert.id] ? 'default' : 'pointer',
+                      fontSize: '12px',
+                      transition: 'all 0.2s ease',
+                      opacity: feedbackLoading === selectedAlert.id ? 0.5 : 1,
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!feedback[selectedAlert.id]) {
+                        e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'
+                        e.currentTarget.style.color = 'var(--text-secondary)'
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!feedback[selectedAlert.id]) {
+                        e.currentTarget.style.backgroundColor = 'transparent'
+                        e.currentTarget.style.color = 'var(--text-muted)'
+                      }
+                    }}
+                  >
+                    <ThumbsDown size={14} />
+                  </button>
+                </div>
               </div>
               <p style={{ fontSize: '13px', lineHeight: '1.5' }}>{selectedAlert.diagnosis}</p>
             </div>
-          )}
+          ) : null}
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>

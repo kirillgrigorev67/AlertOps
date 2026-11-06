@@ -1667,6 +1667,94 @@ async def get_unread_count(request: Request = None):
     return {"unread_count": len(alerts)}
 
 
+@api_router.post("/alerts/{alert_id}/feedback")
+async def submit_feedback(
+    alert_id: str, 
+    feedback: Dict[str, Any], 
+    request: Request = None
+):
+    """Submit feedback for an alert's AI diagnosis.
+    
+    Body: {"helpful": true/false, "user_id": "optional"}
+    Returns existing or new feedback record.
+    """
+    auth_module.require_auth(request)
+    
+    user = auth_module.get_current_user(request)
+    user_id = user.get("username", "anonymous") if isinstance(user, dict) else str(user)
+    
+    # Get user_id from request body if provided, otherwise use authenticated user
+    helpful = feedback.get("helpful")
+    if helpful is None:
+        raise HTTPException(status_code=400, detail="helpful field is required")
+    
+    fb_user_id = feedback.get("user_id", user_id)
+    
+    # Check if feedback already exists for this alert+user+helpful combo
+    existing = storage.list("alert_feedback")
+    for f in existing:
+        if (f.get("alert_id") == alert_id and 
+            f.get("user_id") == fb_user_id and 
+            f.get("helpful") == helpful):
+            return f
+    
+    # Create new feedback record
+    now = utc_now_iso()
+    record = {
+        "id": str(uuid.uuid4()),
+        "alert_id": alert_id,
+        "user_id": fb_user_id,
+        "helpful": helpful,
+        "timestamp": now,
+    }
+    storage.save("alert_feedback", record["id"], record)
+    return record
+
+
+@api_router.get("/alerts/feedback/stats")
+async def get_feedback_stats(request: Request = None):
+    """Get aggregated feedback statistics."""
+    auth_module.require_auth(request)
+    
+    feedbacks = storage.list("alert_feedback")
+    
+    total = len(feedbacks)
+    helpful_count = sum(1 for f in feedbacks if f.get("helpful"))
+    not_helpful_count = total - helpful_count
+    helpful_rate = round(helpful_count / total * 100, 1) if total > 0 else 0
+    
+    # Breakdown by severity — need to look up alerts to get severity/folder
+    by_severity: Dict[str, Dict[str, int]] = {}
+    by_folder: Dict[str, Dict[str, int]] = {}
+    
+    for f in feedbacks:
+        aid = f.get("alert_id", "")
+        alert = storage.get("alerts/active", aid) or storage.get("alerts/history", aid)
+        severity = alert.get("severity", "unknown") if alert else "unknown"
+        folder = alert.get("folder") or "Uncategorized" if alert else "Unknown"
+        
+        if severity not in by_severity:
+            by_severity[severity] = {"helpful": 0, "not_helpful": 0}
+        if folder not in by_folder:
+            by_folder[folder] = {"helpful": 0, "not_helpful": 0}
+        
+        if f.get("helpful"):
+            by_severity[severity]["helpful"] += 1
+            by_folder[folder]["helpful"] += 1
+        else:
+            by_severity[severity]["not_helpful"] += 1
+            by_folder[folder]["not_helpful"] += 1
+    
+    return {
+        "total": total,
+        "helpful_count": helpful_count,
+        "not_helpful_count": not_helpful_count,
+        "helpful_rate": helpful_rate,
+        "by_severity": by_severity,
+        "by_folder": by_folder,
+    }
+
+
 @api_router.post("/alerts/mark-all-read")
 async def mark_all_alerts_read(request: Request = None):
     auth_module.require_editor(request)

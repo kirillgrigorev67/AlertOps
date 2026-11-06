@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Bell, CheckCircle, Loader, AlertCircle, Database, Search } from 'lucide-react'
+import { Bell, CheckCircle, Loader, AlertCircle, Database, Search, ThumbsUp, ThumbsDown } from 'lucide-react'
 import api from '../api/client'
 
 interface Alert {
@@ -17,11 +17,17 @@ interface Alert {
   read: boolean
 }
 
+interface FeedbackState {
+  [alertId: string]: 'helpful' | 'not_helpful' | null
+}
+
 export default function ActiveAlerts() {
   const [alerts, setAlerts] = useState<Alert[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
+  const [feedback, setFeedback] = useState<FeedbackState>({})
+  const [feedbackLoading, setFeedbackLoading] = useState<string | null>(null)
 
   useEffect(() => {
     loadAlerts()
@@ -38,6 +44,19 @@ export default function ActiveAlerts() {
       setError('Failed to load alerts')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const submitFeedback = async (alertId: string, helpful: boolean) => {
+    if (feedback[alertId]) return // Already submitted
+    setFeedbackLoading(alertId)
+    try {
+      await api.post(`/alerts/${alertId}/feedback`, { helpful })
+      setFeedback(prev => ({ ...prev, [alertId]: helpful ? 'helpful' : 'not_helpful' }))
+    } catch {
+      // Silently fail — don't disrupt UX
+    } finally {
+      setFeedbackLoading(null)
     }
   }
 
@@ -184,31 +203,114 @@ export default function ActiveAlerts() {
                   borderRadius: 'var(--radius-sm)',
                   borderLeft: '3px solid var(--accent-primary)'
                 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
-                    <AlertCircle size={14} color="var(--accent-primary)" />
-                    <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--accent-primary)' }}>
-                      AI Diagnosis
-                    </span>
-                    {alert.diagnosis_cached && (
-                      <span 
-                        title="This diagnosis was retrieved from cache (identical alert + logs seen before)"
-                        style={{ 
-                          fontSize: '10px', 
-                          fontWeight: 500,
-                          color: 'var(--text-muted)',
-                          backgroundColor: 'var(--bg-secondary)',
-                          padding: '1px 6px',
-                          borderRadius: 'var(--radius-sm)',
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <AlertCircle size={14} color="var(--accent-primary)" />
+                      <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--accent-primary)' }}>
+                        AI Diagnosis
+                      </span>
+                      {alert.diagnosis_cached && (
+                        <span 
+                          title="This diagnosis was retrieved from cache (identical alert + logs seen before)"
+                          style={{ 
+                            fontSize: '10px', 
+                            fontWeight: 500,
+                            color: 'var(--text-muted)',
+                            backgroundColor: 'var(--bg-secondary)',
+                            padding: '1px 6px',
+                            borderRadius: 'var(--radius-sm)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '3px',
+                            cursor: 'help',
+                          }}
+                        >
+                          <Database size={10} />
+                          cached
+                        </span>
+                      )}
+                    </div>
+                    {/* Feedback buttons */}
+                    <div style={{ display: 'flex', gap: '4px' }}>
+                      <button
+                        onClick={() => submitFeedback(alert.id, true)}
+                        disabled={!!feedback[alert.id] || !!feedbackLoading}
+                        title="Was this diagnosis helpful?"
+                        style={{
                           display: 'flex',
                           alignItems: 'center',
-                          gap: '3px',
-                          cursor: 'help',
+                          gap: '4px',
+                          padding: '3px 8px',
+                          borderRadius: 'var(--radius-sm)',
+                          border: feedback[alert.id] === 'helpful' 
+                            ? '1.5px solid var(--success)' 
+                            : '1px solid var(--border)',
+                          backgroundColor: feedback[alert.id] === 'helpful' 
+                            ? 'rgba(34, 197, 94, 0.12)' 
+                            : 'transparent',
+                          color: feedback[alert.id] === 'helpful' 
+                            ? 'var(--success)' 
+                            : 'var(--text-muted)',
+                          cursor: feedback[alert.id] ? 'default' : 'pointer',
+                          fontSize: '12px',
+                          transition: 'all 0.2s ease',
+                          opacity: feedbackLoading === alert.id ? 0.5 : 1,
+                        }}
+                        onMouseEnter={(e) => {
+                          if (!feedback[alert.id]) {
+                            e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'
+                            e.currentTarget.style.color = 'var(--text-secondary)'
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (!feedback[alert.id]) {
+                            e.currentTarget.style.backgroundColor = 'transparent'
+                            e.currentTarget.style.color = 'var(--text-muted)'
+                          }
                         }}
                       >
-                        <Database size={10} />
-                        cached
-                      </span>
-                    )}
+                        <ThumbsUp size={14} />
+                      </button>
+                      <button
+                        onClick={() => submitFeedback(alert.id, false)}
+                        disabled={!!feedback[alert.id] || !!feedbackLoading}
+                        title="Was this diagnosis not helpful?"
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          padding: '3px 8px',
+                          borderRadius: 'var(--radius-sm)',
+                          border: feedback[alert.id] === 'not_helpful' 
+                            ? '1.5px solid var(--error)' 
+                            : '1px solid var(--border)',
+                          backgroundColor: feedback[alert.id] === 'not_helpful' 
+                            ? 'rgba(239, 68, 68, 0.12)' 
+                            : 'transparent',
+                          color: feedback[alert.id] === 'not_helpful' 
+                            ? 'var(--error)' 
+                            : 'var(--text-muted)',
+                          cursor: feedback[alert.id] ? 'default' : 'pointer',
+                          fontSize: '12px',
+                          transition: 'all 0.2s ease',
+                          opacity: feedbackLoading === alert.id ? 0.5 : 1,
+                        }}
+                        onMouseEnter={(e) => {
+                          if (!feedback[alert.id]) {
+                            e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'
+                            e.currentTarget.style.color = 'var(--text-secondary)'
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (!feedback[alert.id]) {
+                            e.currentTarget.style.backgroundColor = 'transparent'
+                            e.currentTarget.style.color = 'var(--text-muted)'
+                          }
+                        }}
+                      >
+                        <ThumbsDown size={14} />
+                      </button>
+                    </div>
                   </div>
                   <p style={{ fontSize: '13px', lineHeight: '1.5' }}>{alert.diagnosis}</p>
                 </div>

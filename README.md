@@ -106,6 +106,14 @@ Admin-only page to manage users. Create, edit, delete users, change roles, assig
 
 ![Users](assets/screenshots/users.png)
 
+---
+
+### AI Diagnosis Feedback Stats
+Admin-only dashboard showing aggregated feedback on AI-generated diagnoses. Displays total feedback count, helpfulness rate, and breakdowns by severity level and folder to help identify which diagnoses need improvement.
+
+
+![Feedback Stats](assets/screenshots/feedback-stats.png)
+
 ## Architecture
 
 ```
@@ -141,6 +149,7 @@ Admin-only page to manage users. Create, edit, delete users, change roles, assig
 - **Instant alerts** — webhook response is immediate; diagnosis runs asynchronously
 - **AI alert generation** — create rules from Grafana panels with LLM suggestions
 - **AI diagnosis** — automatic log correlation and root cause analysis
+- **Feedback on AI diagnoses** — 👍/👎 buttons on every diagnosis to collect usefulness data, with aggregated stats page
 - **Active alert counter** — red badge on the sidebar shows the number of active alerts at a glance
 - **Dark theme UI** — modern, minimal design inspired by Grafana/Linear
 
@@ -502,6 +511,13 @@ The backend exposes a REST API at `http://localhost:8000/api/`. All endpoints re
 |--------|----------|-------------|
 | `GET` | `/api/alerts/history?q=&start=&end=` | Resolved alerts with search and date filter |
 | `DELETE` | `/api/alerts/history` | Clear all history (active alerts preserved) |
+
+### AI Diagnosis Feedback
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/alerts/{alert_id}/feedback` | Submit feedback for an alert's AI diagnosis (`{"helpful": true/false}`) — requires JWT auth, deduplicates by alert+user+helpful combo |
+| `GET` | `/api/alerts/feedback/stats` | Get aggregated feedback statistics (`{total, helpful_count, not_helpful_count, helpful_rate, by_severity, by_folder}`) — admin only |
 
 ### Notification Channels
 

@@ -11,6 +11,7 @@ import NotificationChannels from './pages/NotificationChannels'
 import Users from './pages/Users'
 import Login from './pages/Login'
 import StatusPage from './pages/StatusPage'
+import FeedbackStats from './pages/FeedbackStats'
 
 function App() {
   const { isAuthenticated, isAdmin } = useAuth()
@@ -38,6 +39,7 @@ function App() {
         <Route path="/providers" element={isAdmin ? <Providers /> : <Navigate to="/" replace />} />
         <Route path="/channels" element={isAdmin ? <NotificationChannels /> : <Navigate to="/" replace />} />
         <Route path="/users" element={isAdmin ? <Users /> : <Navigate to="/" replace />} />
+        <Route path="/feedback" element={isAdmin ? <FeedbackStats /> : <Navigate to="/" replace />} />
       </Routes>
     </Layout>
   )

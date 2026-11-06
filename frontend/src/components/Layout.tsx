@@ -12,7 +12,8 @@ import {
   Radio,
   LogOut,
   User as UserIcon,
-  Monitor
+  Monitor,
+  BarChart3
 } from 'lucide-react'
 import ServiceStatus from './ServiceStatus'
 import { useTheme } from './ThemeContext'
@@ -145,6 +146,10 @@ export default function Layout({ children }: LayoutProps) {
                   Users
                 </NavLink>
               )}
+              <NavLink to="/feedback" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+                <BarChart3 size={20} />
+                Feedback
+              </NavLink>
             </>
           )}
         </nav>
